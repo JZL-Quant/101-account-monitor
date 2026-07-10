@@ -1,0 +1,47 @@
+# Python cache/build outputs
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+
+# Local virtual environments
+.venv/
+venv/
+env/
+
+# Editor/local machine files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment and secret files
+.env
+.env.*
+accounts_config.yaml
+*.pem
+*.key
+*service_account*.json
+applied-groove-*.json
+
+# Runtime logs and pid files
+runtime_logs/
+nv_logs/
+*.log
+*.pid
+
+# Monitor runtime data
+minute_snapshots/
+Binance_monitor_merged_test_llj/minute_snapshots/*
+!Binance_monitor_merged_test_llj/minute_snapshots/.gitignore
+*_minute_snapshot.csv
+all_accounts_annualized*.csv
+
+# OS files
+.DS_Store
+Thumbs.db

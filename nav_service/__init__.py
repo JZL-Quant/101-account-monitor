@@ -1,0 +1,1 @@
+"""FastAPI NAV service package."""
