@@ -4,6 +4,7 @@ Example_Account:
   key: replace_with_api_key
   secret: replace_with_secret_key
   initial_unit: 1000000
+  principal: 1000000
   account_type: account
   exchange: Binance
   interest_rate: 0

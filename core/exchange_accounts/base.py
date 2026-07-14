@@ -12,6 +12,12 @@ from config.settings import MINUTE_SNAPSHOT_DIR
 
 RUNTIME_LOGGER = setup_runtime_logger("portfolio_nav_fetcher")
 
+SNAPSHOT_COLUMNS = [
+    "timestamp", "actual_equity", "total_unit", "net_value",
+    "dividend_amount", "interest_deduction", "withdraw_amount",
+    "subscription_amount",
+]
+
 
 def read_minute_snapshot_file(minute_snapshot_file):
     if not os.path.exists(minute_snapshot_file):
@@ -109,22 +115,24 @@ class BaseExchangeAccount(ABC):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         os.makedirs(os.path.dirname(self.minute_snapshot_file), exist_ok=True)
 
+        file_exists = os.path.exists(self.minute_snapshot_file)
+        if file_exists:
+            existing = pd.read_csv(self.minute_snapshot_file)
+            missing_columns = [column for column in SNAPSHOT_COLUMNS if column not in existing.columns]
+            if missing_columns:
+                for column in missing_columns:
+                    existing[column] = ""
+                existing[SNAPSHOT_COLUMNS].to_csv(self.minute_snapshot_file, index=False)
+
         df = pd.DataFrame(
-            [[timestamp, actual_equity, total_unit, net_value, "", ""]],
-            columns=[
-                "timestamp",
-                "actual_equity",
-                "total_unit",
-                "net_value",
-                "dividend_amount",
-                "subscription_amount",
-            ],
+            [[timestamp, actual_equity, total_unit, net_value, "", "", "", ""]],
+            columns=SNAPSHOT_COLUMNS,
         )
 
         df.to_csv(
             self.minute_snapshot_file,
             mode="a",
-            header=not os.path.exists(self.minute_snapshot_file),
+            header=not file_exists,
             index=False,
         )
         RUNTIME_LOGGER.debug(
@@ -178,74 +186,97 @@ class BaseExchangeAccount(ABC):
             RUNTIME_LOGGER.exception("[%s] ❌ 更新分红/申购后净值失败", self.name)
 
     async def handle_dividend_pro(self, dividend_date, dividend_amount):
+        return await self.handle_outflow(dividend_date, dividend_amount, "dividend_amount", "分红")
+
+    async def handle_interest_deduction_pro(self, deduction_date, deduction_amount):
+        return await self.handle_outflow(deduction_date, deduction_amount, "interest_deduction", "扣息")
+
+    async def handle_withdrawal_pro(self, withdrawal_date, withdrawal_amount):
+        return await self.handle_outflow(withdrawal_date, withdrawal_amount, "withdraw_amount", "赎回")
+
+    async def handle_outflow(self, event_date, amount, csv_column, action_label):
+        if amount <= 0:
+            raise ValueError(f"{action_label}金额必须大于 0")
         try:
             actual_equity = await self.get_actual_equity()
         except Exception:
             RUNTIME_LOGGER.exception("[%s] 获取账户信息失败", self.name)
-            return
+            raise
 
         try:
             df = pd.read_csv(self.minute_snapshot_file, parse_dates=["timestamp"])
         except FileNotFoundError:
-            RUNTIME_LOGGER.warning("[%s] ⚠️ 快照文件未找到，无法进行分红处理", self.name)
-            return
+            raise ValueError(f"找不到 {self.name} 的快照文件，无法处理{action_label}")
+        for column in SNAPSHOT_COLUMNS:
+            if column not in df.columns:
+                df[column] = ""
+        df = df[SNAPSHOT_COLUMNS]
 
-        dividend_date = pd.to_datetime(dividend_date).date()
-        day_data = df[df["timestamp"].dt.date == dividend_date]
+        event_date = pd.to_datetime(event_date).date()
+        day_data = df[df["timestamp"].dt.date == event_date].copy()
         if day_data.empty:
-            RUNTIME_LOGGER.warning("[%s] ⚠️ 找不到 %s 的记录数据", self.name, dividend_date)
-            return
+            raise ValueError(f"找不到 {event_date} 的快照数据")
 
         day_data["net_value_change"] = day_data["net_value"].diff().abs()
         max_row = day_data.loc[day_data["net_value_change"].idxmax()]
 
-        dividend_time = max_row["timestamp"]
-        net_value_before = df[df["timestamp"] < dividend_time]["net_value"].iloc[-1]
+        event_time = max_row["timestamp"]
+        prior_rows = df[df["timestamp"] < event_time]
+        if prior_rows.empty:
+            raise ValueError(f"{event_time} 之前没有净值数据，无法处理{action_label}")
+        net_value_before = prior_rows["net_value"].iloc[-1]
 
-        reduced_unit = dividend_amount / net_value_before
+        reduced_unit = amount / net_value_before
         new_total_unit = max_row["total_unit"] - reduced_unit
+        if new_total_unit <= 0:
+            raise ValueError(f"{action_label}金额过大，处理后的总份额必须大于 0")
         new_net_value = actual_equity / new_total_unit
 
-        df.loc[df["timestamp"] == dividend_time, "total_unit"] = new_total_unit
-        df.loc[df["timestamp"] == dividend_time, "net_value"] = new_net_value
-        df.loc[df["timestamp"] == dividend_time, "dividend_amount"] = dividend_amount
+        df.loc[df["timestamp"] == event_time, "total_unit"] = new_total_unit
+        df.loc[df["timestamp"] == event_time, "net_value"] = new_net_value
+        df.loc[df["timestamp"] == event_time, csv_column] = amount
         df.to_csv(self.minute_snapshot_file, index=False)
 
         RUNTIME_LOGGER.info(
-            "[%s] 💵 分红 %s 于 %s，更新份数: %.2f, 净值: %.8f",
+            "[%s] %s %s 于 %s，更新份数: %.2f, 净值: %.8f",
             self.name,
-            dividend_amount,
-            dividend_time,
+            action_label,
+            amount,
+            event_time,
             new_total_unit,
             new_net_value,
         )
 
-        self.update_post_event_net_values(dividend_time, new_total_unit)
+        self.update_post_event_net_values(event_time, new_total_unit)
+        return event_time
 
     async def handle_subscription_pro(self, subscription_date, subscription_amount):
+        if subscription_amount <= 0:
+            raise ValueError("申购金额必须大于 0")
         try:
             actual_equity = await self.get_actual_equity()
         except Exception:
             RUNTIME_LOGGER.exception("[%s] 获取账户信息失败", self.name)
-            return
+            raise
 
         try:
             df = pd.read_csv(self.minute_snapshot_file, parse_dates=["timestamp"])
         except FileNotFoundError:
-            RUNTIME_LOGGER.warning("[%s] ⚠️ 快照文件未找到，无法进行申购处理", self.name)
-            return
+            raise ValueError(f"找不到 {self.name} 的快照文件，无法处理申购")
 
         subscription_date = pd.to_datetime(subscription_date).date()
-        day_data = df[df["timestamp"].dt.date == subscription_date]
+        day_data = df[df["timestamp"].dt.date == subscription_date].copy()
         if day_data.empty:
-            RUNTIME_LOGGER.warning("[%s] ⚠️ 找不到 %s 的记录数据", self.name, subscription_date)
-            return
+            raise ValueError(f"找不到 {subscription_date} 的快照数据")
 
         day_data["net_value_change"] = day_data["net_value"].diff().abs()
         max_row = day_data.loc[day_data["net_value_change"].idxmax()]
 
         subscription_time = max_row["timestamp"]
-        net_value_before = df[df["timestamp"] < subscription_time]["net_value"].iloc[-1]
+        prior_rows = df[df["timestamp"] < subscription_time]
+        if prior_rows.empty:
+            raise ValueError(f"{subscription_time} 之前没有净值数据，无法处理申购")
+        net_value_before = prior_rows["net_value"].iloc[-1]
 
         added_unit = subscription_amount / net_value_before
         new_total_unit = max_row["total_unit"] + added_unit
@@ -266,3 +297,4 @@ class BaseExchangeAccount(ABC):
         )
 
         self.update_post_event_net_values(subscription_time, new_total_unit)
+        return subscription_time

@@ -65,6 +65,7 @@ class AccountRegistry:
         return {
             "minute_snapshot_file": minute_snapshot_file,
             "initial_unit": account_info["initial_unit"],
+            "principal": account_info.get("principal", account_info["initial_unit"]),
             "account_type": account_info["account_type"],
             "interest_rate": account_info.get("interest_rate", 0),
             "client": account_info.get("client", ""),

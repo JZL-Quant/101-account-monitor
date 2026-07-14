@@ -20,6 +20,7 @@ def initialize(base_dir):
 
     BASE_DIR = base_dir
     CONFIG_PATH = os.path.join(BASE_DIR, "accounts_config.yaml")
+    ensure_principals_in_config()
     account_registry = get_account_registry(CONFIG_PATH)
     account_infos = account_registry.local_accounts()
     accounts = account_registry.exchange_accounts()
@@ -192,6 +193,7 @@ def append_account_config(
             "key": api_key,
             "secret": secret_key,
             "initial_unit": initial_unit,
+            "principal": initial_unit,
             "account_type": account_type,
             "exchange": exchange,
             "interest_rate": interest_rate,
@@ -216,6 +218,86 @@ def append_account_config(
 
     start_account_update_task(product_name)
     return account_infos[product_name]
+
+
+def ensure_principals_in_config():
+    """为缺少 principal 的老账户补上与 initial_unit 相同的本金。"""
+    with open(CONFIG_PATH, "r", encoding="utf-8") as file:
+        content = file.read()
+
+    account_pattern = re.compile(
+        r"(?ms)^(?P<header>[^\s#][^:\r\n]*:[ \t]*\r?\n)"
+        r"(?P<body>(?:^[ \t]+[^\r\n]*(?:\r?\n|$))*)"
+    )
+
+    def add_principal(match):
+        body = match.group("body")
+        if re.search(r"(?m)^[ \t]+principal\s*:", body):
+            return match.group(0)
+        initial = re.search(
+            r"(?m)^(?P<indent>[ \t]+)initial_unit:\s*(?P<value>[^#\r\n]+?)\s*(?:#.*)?(?:\r?\n|$)",
+            body,
+        )
+        if not initial:
+            return match.group(0)
+        insertion = f'{initial.group(0)}{initial.group("indent")}principal: {initial.group("value").strip()}\n'
+        new_body = body[:initial.start()] + insertion + body[initial.end():]
+        return match.group("header") + new_body
+
+    updated = account_pattern.sub(add_principal, content)
+    if updated != content:
+        temp_path = CONFIG_PATH + ".tmp"
+        with open(temp_path, "w", encoding="utf-8", newline="\n") as file:
+            file.write(updated)
+        os.replace(temp_path, CONFIG_PATH)
+
+
+def adjust_principal(account_name, amount):
+    """按资金变动调整 config 中的本金；申购为正，赎回为负。"""
+    if account_name not in account_infos:
+        raise ValueError(f"账户 {account_name} 不存在")
+    amount = float(amount)
+    current = float(account_infos[account_name].get("principal", account_infos[account_name]["initial_unit"]))
+    new_value = current + amount
+    if new_value <= 0:
+        raise ValueError("赎回后的本金必须大于 0")
+
+    with open(CONFIG_PATH, "r", encoding="utf-8") as file:
+        content = file.read()
+    account_pattern = re.compile(
+        rf"(?ms)^(?P<header>{re.escape(account_name)}:[ \t]*\r?\n)"
+        rf"(?P<body>(?:^[ \t]+[^\r\n]*(?:\r?\n|$))*)"
+    )
+    match = account_pattern.search(content)
+    if not match:
+        raise ValueError(f"配置文件中找不到账户 {account_name}")
+    body = match.group("body")
+    principal_pattern = re.compile(r"(?m)^(?P<indent>[ \t]+)principal:\s*[^#\r\n]+(?P<suffix>\s*(?:#.*)?)$")
+    if principal_pattern.search(body):
+        replacement_body = principal_pattern.sub(
+            lambda item: f'{item.group("indent")}principal: {new_value:g}{item.group("suffix")}',
+            body,
+            count=1,
+        )
+    else:
+        initial_unit_match = re.search(r"(?m)^(?P<indent>[ \t]+)initial_unit:[^\r\n]*(?:\r?\n|$)", body)
+        if not initial_unit_match:
+            raise ValueError(f"账户 {account_name} 缺少本金初值配置")
+        insertion = f'{initial_unit_match.group(0)}{initial_unit_match.group("indent")}principal: {new_value:g}\n'
+        replacement_body = body[:initial_unit_match.start()] + insertion + body[initial_unit_match.end():]
+    updated = content[:match.start("body")] + replacement_body + content[match.end("body"):]
+    temp_path = CONFIG_PATH + ".tmp"
+    with open(temp_path, "w", encoding="utf-8", newline="\n") as file:
+        file.write(updated)
+    os.replace(temp_path, CONFIG_PATH)
+
+    account_infos[account_name]["principal"] = new_value
+    account_registry.reload()
+    return new_value
+
+
+def deduct_principal(account_name, withdrawal_amount):
+    return adjust_principal(account_name, -float(withdrawal_amount))
 
 
 def start_account_update_task(account_name):

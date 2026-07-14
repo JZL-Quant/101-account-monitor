@@ -64,6 +64,7 @@ Example_Account:
   key: replace_with_api_key
   secret: replace_with_secret_key
   initial_unit: 1000000
+  principal: 1000000
   account_type: account
   exchange: Binance
   interest_rate: 0
@@ -77,6 +78,7 @@ Example_Account:
 | --- | --- |
 | `key` / `secret` | 交易所 API 凭证 |
 | `initial_unit` | 账户初始份额 |
+| `principal` | 当前本金；未配置时兼容使用 `initial_unit`，赎回后自动扣减并写回配置 |
 | `account_type` | 账户类型 |
 | `exchange` | 交易所，当前支持 `Binance`、`Gate` |
 | `interest_rate` | 利率或计息参数 |

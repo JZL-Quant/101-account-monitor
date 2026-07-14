@@ -70,7 +70,15 @@
                         required />
                 </div>
 
-                <!-- 两个按钮 -->
+                <div>
+                    <label for="outflow_type" class="block text-sm font-semibold text-gray-700 mb-2">资金转出类型</label>
+                    <select id="outflow_type" class="block w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-2">
+                        <option value="dividend">分红</option>
+                        <option value="interest_deduction">扣息</option>
+                        <option value="withdrawal">赎回</option>
+                    </select>
+                </div>
+
                 <div class="flex space-x-6 mt-6">
                     <button type="button" id="btn_subscribe"
                         class="flex-1 bg-gradient-to-r from-blue-500 to-blue-300 hover:from-blue-600 hover:to-blue-400 text-white font-semibold py-3 rounded-lg shadow-md transform transition duration-300 hover:-translate-y-1 hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-blue-300">
@@ -78,7 +86,7 @@
                     </button>
                     <button type="button" id="btn_dividend"
                         class="flex-1 bg-gradient-to-r from-green-500 to-green-300 hover:from-green-600 hover:to-green-400 text-white font-semibold py-3 rounded-lg shadow-md transform transition duration-300 hover:-translate-y-1 hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-green-300">
-                        分红
+                        资金转出
                     </button>
                 </div>
             </form>
@@ -134,6 +142,12 @@
             const date = document.getElementById("action_date").value.trim();
             const amountStr = document.getElementById("action_amount").value.trim();
             const amount = parseFloat(amountStr);
+            const outflowType = document.getElementById("outflow_type").value;
+            const outflowConfig = {
+                dividend: { path: "dividend_form", date: "dividend_date", amount: "dividend_amount", label: "分红" },
+                interest_deduction: { path: "interest_deduction_form", date: "deduction_date", amount: "deduction_amount", label: "扣息" },
+                withdrawal: { path: "withdrawal_form", date: "withdrawal_date", amount: "withdrawal_amount", label: "赎回" }
+            }[outflowType];
 
             if (!account || !date || isNaN(amount)) {
                 showMessage("请完整填写账户、日期和金额", true);
@@ -141,16 +155,16 @@
             }
 
             try {
-                const res = await fetch(`/dividend_form/${account}`, {
+                const res = await fetch(`/${outflowConfig.path}/${account}`, {
                     method: "POST",
                     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                    body: `dividend_date=${encodeURIComponent(date)}&dividend_amount=${encodeURIComponent(amount)}`
+                    body: `${outflowConfig.date}=${encodeURIComponent(date)}&${outflowConfig.amount}=${encodeURIComponent(amount)}`
                 });
                 const data = await res.json();
                 if (res.ok) {
                     showMessage(data.message);
                 } else {
-                    showMessage(data.detail || "分红失败", true);
+                    showMessage(data.detail || `${outflowConfig.label}失败`, true);
                 }
             } catch (error) {
                 showMessage("网络错误", true);

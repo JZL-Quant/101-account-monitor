@@ -8,7 +8,12 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from core.metrics import collector_registry
 from sync_grafana_dashboards import sync_dashboards
 from . import state
-from .schemas import DividendRequest, SubscriptionRequest
+from .schemas import (
+    DividendRequest,
+    InterestDeductionRequest,
+    SubscriptionRequest,
+    WithdrawalRequest,
+)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -22,6 +27,7 @@ def register_routes(app, templates):
         account = state.accounts[req.account_name]
         try:
             await account.handle_subscription_pro(req.subscription_date, req.subscription_amount)
+            state.adjust_principal(req.account_name, req.subscription_amount)
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"申购失败: {exc}")
         return state.account_response(req.account_name, "申购", req.subscription_amount, req.subscription_date)
@@ -33,6 +39,7 @@ def register_routes(app, templates):
         account = state.accounts[account_name]
         try:
             await account.handle_subscription_pro(subscription_date, subscription_amount)
+            state.adjust_principal(account_name, subscription_amount)
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"申购失败: {exc}")
         return state.account_response(account_name, "申购", subscription_amount, subscription_date)
@@ -62,6 +69,72 @@ def register_routes(app, templates):
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"分红失败: {exc}")
         return state.account_response(account_name, "分红", dividend_amount, dividend_date)
+
+    @app.post("/interest_deduction")
+    async def interest_deduction(req: InterestDeductionRequest):
+        if req.account_name not in state.accounts:
+            raise HTTPException(status_code=404, detail="账户不存在")
+        try:
+            await state.accounts[req.account_name].handle_interest_deduction_pro(
+                req.deduction_date, req.deduction_amount
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"扣息失败: {exc}")
+        return state.account_response(req.account_name, "扣息", req.deduction_amount, req.deduction_date)
+
+    @app.post("/interest_deduction_form/{account_name}")
+    async def interest_deduction_form(
+        account_name: str,
+        deduction_date: str = Form(...),
+        deduction_amount: float = Form(...),
+    ):
+        if account_name not in state.accounts:
+            raise HTTPException(status_code=404, detail="账户不存在")
+        try:
+            await state.accounts[account_name].handle_interest_deduction_pro(
+                deduction_date, deduction_amount
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"扣息失败: {exc}")
+        return state.account_response(account_name, "扣息", deduction_amount, deduction_date)
+
+    @app.post("/withdrawal")
+    async def withdrawal(req: WithdrawalRequest):
+        if req.account_name not in state.accounts:
+            raise HTTPException(status_code=404, detail="账户不存在")
+        try:
+            account_info = state.account_infos[req.account_name]
+            current_principal = float(account_info.get("principal", account_info["initial_unit"]))
+            if req.withdrawal_amount >= current_principal:
+                raise ValueError("赎回后的本金必须大于 0")
+            await state.accounts[req.account_name].handle_withdrawal_pro(
+                req.withdrawal_date, req.withdrawal_amount
+            )
+            state.deduct_principal(req.account_name, req.withdrawal_amount)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"赎回失败: {exc}")
+        return state.account_response(req.account_name, "赎回", req.withdrawal_amount, req.withdrawal_date)
+
+    @app.post("/withdrawal_form/{account_name}")
+    async def withdrawal_form(
+        account_name: str,
+        withdrawal_date: str = Form(...),
+        withdrawal_amount: float = Form(...),
+    ):
+        if account_name not in state.accounts:
+            raise HTTPException(status_code=404, detail="账户不存在")
+        try:
+            account_info = state.account_infos[account_name]
+            current_principal = float(account_info.get("principal", account_info["initial_unit"]))
+            if withdrawal_amount >= current_principal:
+                raise ValueError("赎回后的本金必须大于 0")
+            await state.accounts[account_name].handle_withdrawal_pro(
+                withdrawal_date, withdrawal_amount
+            )
+            state.deduct_principal(account_name, withdrawal_amount)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"赎回失败: {exc}")
+        return state.account_response(account_name, "赎回", withdrawal_amount, withdrawal_date)
 
     @app.get("/")
     async def read_root():
