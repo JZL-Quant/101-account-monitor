@@ -1,4 +1,6 @@
 import asyncio
+import csv
+import inspect
 import os
 import re
 from abc import ABC, abstractmethod
@@ -61,6 +63,8 @@ class BaseExchangeAccount(ABC):
         self.ccy = (ccy or "USDT").upper()
         self.exchange = (exchange or "Exchange").strip()
         self.exchange_id = self.exchange.lower()
+        self._latest_total_unit = None
+        self._snapshot_schema_checked = False
 
         exchange_label = re.sub(r"\W+", "_", self.exchange[:1].upper() + self.exchange[1:]).strip("_")
         exchange_label = exchange_label or "Exchange"
@@ -103,26 +107,53 @@ class BaseExchangeAccount(ABC):
     async def fetch_rwusd_account(self):
         raise NotImplementedError
 
+    async def close(self):
+        """Close an exchange SDK client when the concrete account exposes one."""
+        client = getattr(self, "client", None) or getattr(self, "api_client", None)
+        close = getattr(client, "close", None)
+        if close is None:
+            return
+        result = close()
+        if inspect.isawaitable(result):
+            await result
+
     def get_latest_total_unit(self):
+        if self._latest_total_unit is not None:
+            return self._latest_total_unit
         try:
-            df = pd.read_csv(self.minute_snapshot_file)
-            return df["total_unit"].iloc[-1]
-        except (FileNotFoundError, IndexError):
-            return self.initial_unit
+            with open(self.minute_snapshot_file, "r", encoding="utf-8", newline="") as file:
+                rows = csv.reader(file)
+                header = next(rows)
+                total_unit_index = header.index("total_unit")
+                latest = None
+                for row in rows:
+                    if row and len(row) > total_unit_index and row[total_unit_index]:
+                        latest = float(row[total_unit_index])
+            self._latest_total_unit = latest if latest is not None else self.initial_unit
+        except (FileNotFoundError, StopIteration, ValueError):
+            self._latest_total_unit = self.initial_unit
+        return self._latest_total_unit
+
+    def _ensure_snapshot_schema(self):
+        if self._snapshot_schema_checked or not os.path.exists(self.minute_snapshot_file):
+            self._snapshot_schema_checked = True
+            return
+        existing_header = list(pd.read_csv(self.minute_snapshot_file, nrows=0).columns)
+        missing_columns = [column for column in SNAPSHOT_COLUMNS if column not in existing_header]
+        if missing_columns:
+            existing = pd.read_csv(self.minute_snapshot_file)
+            for column in missing_columns:
+                existing[column] = ""
+            existing[SNAPSHOT_COLUMNS].to_csv(self.minute_snapshot_file, index=False)
+        self._snapshot_schema_checked = True
 
     def record_minute_snapshot(self, actual_equity, total_unit):
         net_value = actual_equity / total_unit
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         os.makedirs(os.path.dirname(self.minute_snapshot_file), exist_ok=True)
 
-        file_exists = os.path.exists(self.minute_snapshot_file)
-        if file_exists:
-            existing = pd.read_csv(self.minute_snapshot_file)
-            missing_columns = [column for column in SNAPSHOT_COLUMNS if column not in existing.columns]
-            if missing_columns:
-                for column in missing_columns:
-                    existing[column] = ""
-                existing[SNAPSHOT_COLUMNS].to_csv(self.minute_snapshot_file, index=False)
+        file_exists = os.path.exists(self.minute_snapshot_file) and os.path.getsize(self.minute_snapshot_file) > 0
+        self._ensure_snapshot_schema()
 
         df = pd.DataFrame(
             [[timestamp, actual_equity, total_unit, net_value, "", "", "", ""]],
@@ -135,6 +166,7 @@ class BaseExchangeAccount(ABC):
             header=not file_exists,
             index=False,
         )
+        self._latest_total_unit = total_unit
         RUNTIME_LOGGER.debug(
             "[%s] 📊 记录快照: %s, 净值: %.8f, 份数: %.2f",
             self.name,
@@ -176,6 +208,7 @@ class BaseExchangeAccount(ABC):
             df.loc[mask, "total_unit"] = new_total_unit
             df.loc[mask, "net_value"] = df.loc[mask, "actual_equity"] / new_total_unit
             df.to_csv(self.minute_snapshot_file, index=False)
+            self._latest_total_unit = new_total_unit
             RUNTIME_LOGGER.info(
                 "[%s] ✅ 已更新事件 %s 后的净值和份数（共 %s 行）",
                 self.name,

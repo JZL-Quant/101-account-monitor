@@ -209,7 +209,9 @@ def append_account_config(
             file.write("\n" + yaml_fragment)
 
         account_infos = account_registry.reload()
-        accounts = account_registry.exchange_accounts()
+        account_info = account_infos[product_name]
+        account_cls = EXCHANGE_ACCOUNT_BY_ID[account_info["exchange_id"]]
+        accounts[product_name] = account_cls.from_account_info(product_name, account_info)
     except Exception:
         with open(CONFIG_PATH, "r+b") as file:
             file.truncate(original_size)
@@ -306,3 +308,15 @@ def start_account_update_task(account_name):
     task = account_update_tasks.get(account_name)
     if task is None or task.done():
         account_update_tasks[account_name] = asyncio.create_task(accounts[account_name].update_net_value())
+
+
+async def close_accounts():
+    """Release HTTP sessions and connection pools owned by exchange clients."""
+    results = await asyncio.gather(
+        *(account.close() for account in accounts.values()),
+        return_exceptions=True,
+    )
+    for account_name, result in zip(accounts, results):
+        if isinstance(result, Exception):
+            # Shutdown should continue even if one SDK has already closed itself.
+            print(f"failed to close exchange client for {account_name}: {result}")

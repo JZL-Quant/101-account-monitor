@@ -35,6 +35,7 @@ async def lifespan(_app):
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        await state.close_accounts()
 
 
 app = create_app(BASE_DIR, lifespan=lifespan)

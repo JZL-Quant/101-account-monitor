@@ -52,10 +52,10 @@ async def calculate_simple_annualized_return(data, period_days):
     simple_annualized_return = total_return / period_days * 365
     return simple_annualized_return
 
-async def get_daily_median_net_value(account_name, account_info):
+async def get_daily_median_net_value(account_name, account_info, snapshot_df=None):
     """取每日北京时间 17-18 点的净值中位数，作为日报收益计算基准。"""
     try:
-        df = read_minute_snapshot_file(account_info["minute_snapshot_file"])
+        df = snapshot_df if snapshot_df is not None else read_minute_snapshot_file(account_info["minute_snapshot_file"])
 
         if df is None or df.empty:
             RUNTIME_LOGGER.warning("%s 数据为空", account_name)
@@ -84,10 +84,10 @@ async def get_daily_median_net_value(account_name, account_info):
         RUNTIME_LOGGER.exception("%s 读取快照文件失败", account_name)
         return None
 
-async def get_daily_median_actual_equity(account_name, account_info):
+async def get_daily_median_actual_equity(account_name, account_info, snapshot_df=None):
     """取最近一个有效交易日北京时间 17-18 点的实际权益中位数。"""
     try:
-        df = read_minute_snapshot_file(account_info["minute_snapshot_file"])
+        df = snapshot_df if snapshot_df is not None else read_minute_snapshot_file(account_info["minute_snapshot_file"])
 
         if df is None or df.empty:
             RUNTIME_LOGGER.warning("%s 数据为空", account_name)
@@ -117,11 +117,11 @@ async def get_daily_median_actual_equity(account_name, account_info):
         RUNTIME_LOGGER.exception("%s 读取快照文件失败", account_name)
         return None
 
-async def update_actual_equity(account_name, account_info):
+async def update_actual_equity(account_name, account_info, snapshot_df=None):
     """用最新分钟快照里的实际权益更新 Prometheus 指标。"""
     try:
-        df = read_minute_snapshot_file(account_info["minute_snapshot_file"])
-        if df is None:
+        df = snapshot_df if snapshot_df is not None else read_minute_snapshot_file(account_info["minute_snapshot_file"])
+        if df is None or df.empty:
             account_metrics.set(account_name, "actual_equity", float('nan'))
             return
 
@@ -138,19 +138,19 @@ async def update_actual_equity(account_name, account_info):
     except Exception as e:
         RUNTIME_LOGGER.exception("%s 无法更新实际净值", account_name)
 
-async def update_report_actual_equity(account_name, account_info):
+async def update_report_actual_equity(account_name, account_info, snapshot_df=None):
     """用日报口径的实际权益中位数刷新指标缓存。"""
-    actual_equity = await get_daily_median_actual_equity(account_name, account_info)
+    actual_equity = await get_daily_median_actual_equity(account_name, account_info, snapshot_df)
     if actual_equity is None or pd.isna(actual_equity):
         account_metrics.set(account_name, "report_actual_equity", float("nan"))
         RUNTIME_LOGGER.warning("%s 日报实际权益中位数无效，已设置为 NaN", account_name)
         return
     account_metrics.set(account_name, "report_actual_equity", actual_equity)
 
-async def calculate_annualized_return_1m(account_name, account_info):
+async def calculate_annualized_return_1m(account_name, account_info, snapshot_df=None):
     """用最新净值和约 24 小时前净值计算单日简单年化收益率。"""
     try:
-        df = read_minute_snapshot_file(account_info["minute_snapshot_file"])
+        df = snapshot_df if snapshot_df is not None else read_minute_snapshot_file(account_info["minute_snapshot_file"])
         if df is None or df.empty:
             account_metrics.set(account_name, "annualized_return_1m", float('nan'))
             return
@@ -180,10 +180,10 @@ async def calculate_annualized_return_1m(account_name, account_info):
     except Exception as e:
         RUNTIME_LOGGER.exception("%s 无法计算24小时年化收益率", account_name)
 
-async def calculate_annualized_return_1h(account_name, account_info):
+async def calculate_annualized_return_1h(account_name, account_info, snapshot_df=None):
     """用当前 1 小时和昨日同窗口净值中位数计算 24 小时简单年化收益率。"""
     try:
-        df = read_minute_snapshot_file(account_info["minute_snapshot_file"])
+        df = snapshot_df if snapshot_df is not None else read_minute_snapshot_file(account_info["minute_snapshot_file"])
         if df is None or df.empty:
             account_metrics.set(account_name, "annualized_return_1h", float('nan'))
             return
@@ -220,9 +220,9 @@ async def calculate_annualized_return_1h(account_name, account_info):
     except Exception as e:
         RUNTIME_LOGGER.exception("%s 无法计算24小时年化收益率（中位数版）", account_name)
 
-async def update_annualized_returns(account_name, account_info):
+async def update_annualized_returns(account_name, account_info, snapshot_df=None):
     """基于每日净值中位数更新单日、7 日、30 日简单年化收益率。"""
-    daily_median = await get_daily_median_net_value(account_name, account_info)
+    daily_median = await get_daily_median_net_value(account_name, account_info, snapshot_df)
 
     if daily_median is None or len(daily_median) == 0:
         RUNTIME_LOGGER.warning("%s 未找到有效的每日中位数净值数据", account_name)
@@ -266,10 +266,10 @@ async def update_annualized_returns(account_name, account_info):
         account_metrics.set(account_name, 'annualized_return_24h', float('nan'))
         RUNTIME_LOGGER.warning("%s 无法计算单日年化收益率，已设置为 NaN", account_name)
 
-async def calculate_annualized_cumulative_return(account_name, account_info):
+async def calculate_annualized_cumulative_return(account_name, account_info, snapshot_df=None):
     """用最新实际权益、累计分红和累计申购计算建仓以来的年化累计收益率。"""
     try:
-        df = read_minute_snapshot_file(account_info["minute_snapshot_file"])
+        df = snapshot_df if snapshot_df is not None else read_minute_snapshot_file(account_info["minute_snapshot_file"])
 
         if df is None or df.empty:
             account_metrics.set(account_name, "cumulative_return", float('nan'))
@@ -298,16 +298,16 @@ async def calculate_annualized_cumulative_return(account_name, account_info):
     except Exception as e:
         RUNTIME_LOGGER.exception("计算年化累计收益率失败")
 
-async def calculate_post_dividend_annualized_return(account_name, account_info):
+async def calculate_post_dividend_annualized_return(account_name, account_info, snapshot_df=None):
     """从最近一次分红后的第二天开始，按每日净值中位数计算分红后年化收益率。"""
     try:
-        daily_median = await get_daily_median_net_value(account_name, account_info)
+        daily_median = await get_daily_median_net_value(account_name, account_info, snapshot_df)
 
         if daily_median is None or len(daily_median) == 0:
             RUNTIME_LOGGER.warning("%s 未找到有效的每日中位数净值数据", account_name)
             return
 
-        df = read_minute_snapshot_file(account_info["minute_snapshot_file"])
+        df = snapshot_df if snapshot_df is not None else read_minute_snapshot_file(account_info["minute_snapshot_file"])
 
         if df is None or df.empty:
             RUNTIME_LOGGER.warning("%s 快照文件为空", account_name)
@@ -508,9 +508,12 @@ async def update_metrics():
     """分钟级任务：更新最新实际权益、24 小时点对点收益和 1 小时中位数收益。"""
     for account_name, account_info in accounts.items():
         try:
-            await update_actual_equity(account_name, account_info)
-            await calculate_annualized_return_1m(account_name, account_info)
-            await calculate_annualized_return_1h(account_name, account_info)
+            snapshot_df = read_minute_snapshot_file(account_info["minute_snapshot_file"])
+            if snapshot_df is None:
+                snapshot_df = pd.DataFrame()
+            await update_actual_equity(account_name, account_info, snapshot_df)
+            await calculate_annualized_return_1m(account_name, account_info, snapshot_df)
+            await calculate_annualized_return_1h(account_name, account_info, snapshot_df)
         except Exception as exc:
             RUNTIME_LOGGER.exception("[update_metrics] account %s failed", account_name)
 
@@ -518,10 +521,13 @@ async def update_annualized_metrics():
     """日级任务入口：编排 metrics 计算、日报卡片生成和发送。"""
     for account_name, account_info in accounts.items():
         try:
-            await update_annualized_returns(account_name, account_info)
-            await calculate_annualized_cumulative_return(account_name, account_info)
-            await calculate_post_dividend_annualized_return(account_name, account_info)
-            await update_report_actual_equity(account_name, account_info)
+            snapshot_df = read_minute_snapshot_file(account_info["minute_snapshot_file"])
+            if snapshot_df is None:
+                snapshot_df = pd.DataFrame()
+            await update_annualized_returns(account_name, account_info, snapshot_df)
+            await calculate_annualized_cumulative_return(account_name, account_info, snapshot_df)
+            await calculate_post_dividend_annualized_return(account_name, account_info, snapshot_df)
+            await update_report_actual_equity(account_name, account_info, snapshot_df)
         except Exception:
             RUNTIME_LOGGER.exception("[annualized_metrics] account %s refresh failed", account_name)
 
