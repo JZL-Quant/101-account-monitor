@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import re
 
@@ -13,6 +14,7 @@ account_registry = None
 account_infos = {}
 accounts = {}
 account_update_tasks = {}
+LOGGER = logging.getLogger(__name__)
 
 
 def initialize(base_dir):
@@ -156,6 +158,36 @@ def parse_interest_rate(value, product_name):
     if rate < 0:
         raise ValueError("interest_rate 不能小于 0")
     return rate
+
+
+async def validate_exchange_credentials(exchange, account_type, api_key, secret_key):
+    """Validate credentials before they are persisted to accounts_config.yaml."""
+    exchange_id = normalize_exchange(exchange)
+    account_type = normalize_account_type(account_type)
+    api_key = (api_key or "").strip()
+    secret_key = (secret_key or "").strip()
+    if not api_key or not secret_key:
+        raise ValueError("API Key 和 Secret Key 不能为空")
+
+    account_cls = EXCHANGE_ACCOUNT_BY_ID[exchange_id]
+    account_info = {
+        "key": api_key,
+        "secret": secret_key,
+        "initial_unit": 1.0,
+        "account_type": account_type,
+        "ccy": "USDT",
+        "exchange": exchange_id,
+        "minute_snapshot_file": os.devnull,
+        "blacklist": [],
+    }
+    account = account_cls.from_account_info("__credential_check__", account_info)
+    try:
+        await account.validate_credentials()
+    finally:
+        try:
+            await account.close()
+        except Exception:
+            LOGGER.exception("Failed to close temporary credential validation client")
 
 
 def append_account_config(

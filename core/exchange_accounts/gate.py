@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime
 
 try:
@@ -77,6 +78,16 @@ class GateExchangeAccount(BaseExchangeAccount):
 
     async def fetch_rwusd_account(self):
         return {}
+
+    async def validate_credentials(self):
+        """Verify access to all private Gate APIs used for equity calculation."""
+        def validate_private_apis():
+            self.spot_api.list_spot_accounts()
+            self.margin_api.list_margin_accounts()
+            self.futures_api.list_futures_accounts("usdt")
+            self.wallet_api.get_total_balance(currency="USDT")
+
+        await asyncio.to_thread(validate_private_apis)
 
     async def get_price_map(self):
         price_map = {"USDT": 1.0}

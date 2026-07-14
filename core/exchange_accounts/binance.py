@@ -83,6 +83,19 @@ class BinanceExchangeAccount(BaseExchangeAccount):
             {"sign": True},
         )
 
+    async def validate_credentials(self):
+        """Call every private API required by the selected Binance account type."""
+        if self.account_type == "account_pro":
+            await self.client.sapi_get_portfolio_balance()
+            await self.client.privateGetAccount()
+            await self.client.fapiPrivateV3GetAccount()
+        elif self.account_type == "account":
+            await self.client.papi_get_balance()
+            await self.client.papi_get_um_account()
+        else:
+            raise ValueError(f"Unsupported Binance account_type: {self.account_type}")
+        await self.fetch_rwusd_account()
+
     @staticmethod
     def get_timestamp():
         return int(time.time())

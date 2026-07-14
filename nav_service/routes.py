@@ -175,6 +175,18 @@ def register_routes(app, templates):
         secret_key: str = Form(...),
     ):
         try:
+            await state.validate_exchange_credentials(
+                exchange,
+                account_type,
+                api_key,
+                secret_key,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"API 凭证或账户权限验证失败: {exc}")
+
+        try:
             account_info = state.append_account_config(
                 product_name,
                 initial_unit,

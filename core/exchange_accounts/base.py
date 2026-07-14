@@ -95,6 +95,10 @@ class BaseExchangeAccount(ABC):
     async def get_actual_equity(self):
         raise NotImplementedError
 
+    async def validate_credentials(self):
+        """Verify credentials and permissions required by this account type."""
+        raise NotImplementedError
+
     async def request(self, *args, **kwargs):
         raise NotImplementedError("Exchange-specific request implementation is required")
 
