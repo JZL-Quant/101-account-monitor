@@ -129,7 +129,14 @@ def register_routes(app, templates):
             LOGGER.exception("Grafana Panel creation failed for account %s", product_name)
             grafana_error = str(exc)
 
-        message = f"{product_name} 新增成功"
+        account_type_label = "普通账户" if account_info["account_type"] == "account" else "Pro 账户"
+        initial_unit_text = f'{float(account_info["initial_unit"]):g}'
+        interest_rate_text = f'{float(account_info["interest_rate"]):g}'
+        message = (
+            f"{account_type_label} {product_name} 新增成功，"
+            f"数量 {initial_unit_text} {account_info['ccy']}，"
+            f"客户：{account_info['client']}，利率：{interest_rate_text}"
+        )
         if grafana_error:
             message += "，但 Grafana Panel 创建失败，请检查服务日志或手动执行修复脚本"
 

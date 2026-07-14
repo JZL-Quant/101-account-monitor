@@ -8,7 +8,6 @@ except ImportError:  # pragma: no cover - handled at runtime with a clear error.
     FuturesApi = MarginApi = SpotApi = WalletApi = None
 
 from .base import BaseExchangeAccount, RUNTIME_LOGGER
-from ..feishu import NOTIFIER
 
 
 class PriceMissingError(Exception):
@@ -115,10 +114,6 @@ class GateExchangeAccount(BaseExchangeAccount):
             "- action: skipped from this equity snapshot"
         )
         RUNTIME_LOGGER.warning(msg)
-        try:
-            await NOTIFIER.send_message(msg)
-        except Exception as notify_exc:
-            RUNTIME_LOGGER.error("[%s] Gate missing-price notification failed: %s", self.name, notify_exc)
 
     async def get_spot_value(self, price_map, missing_currencies: set):
         total = 0.0

@@ -84,6 +84,8 @@ Example_Account:
 | `ccy` | 计价币种，如 `USDT` 或 `BTC` |
 | `Blacklist` | Gate 账户估值时忽略缺失价格的币种列表 |
 
+Gate 估值遇到缺少 USDT 价格的币种时，会将该币种从当次权益快照中跳过并记录 `WARNING` 日志，但不会发送飞书告警。黑名单中的币种会静默跳过。
+
 > `accounts_config.yaml` 包含敏感凭证，已设计为仅保留在服务器本地。请勿提交到 Git，也不要给 API Key 开启不必要的交易或提现权限。
 
 ### 3. 创建本地敏感配置
@@ -205,6 +207,8 @@ python sync_grafana_dashboards.py
 ```
 
 默认模式只追加当前 Dashboard 中标题不存在的账户 Panel，已有 Panel 原样保留。可先预览：
+
+新生成的净值 Panel 会过滤 `actual_equity <= 1e-7` 的无效值，并仅展示当前 Grafana 时间范围内处于 1% 至 99% 分位数之间的数据，以减少零值和极端异常值对曲线的影响。
 
 ```bash
 python sync_grafana_dashboards.py --dry-run
