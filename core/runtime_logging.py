@@ -1,10 +1,9 @@
 import logging
 import os
-import re
 from logging.handlers import TimedRotatingFileHandler
 
+from config.settings import RUNTIME_LOG_DIR, logger_level
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 logging.addLevelName(logging.INFO, "MESSAGE")
 
@@ -26,15 +25,9 @@ def normalize_log_level(level, default=logging.INFO) -> int:
     return LOG_LEVELS.get(str(level).strip().upper(), default)
 
 
-def logger_env_name(log_name: str) -> str:
-    safe_name = re.sub(r"\W+", "_", log_name).strip("_").upper()
-    return f"{safe_name}_LOG_LEVEL"
-
-
 def resolve_log_level(log_name: str, default="ERROR") -> int:
     default_level = normalize_log_level(default)
-    level_name = os.getenv(logger_env_name(log_name), os.getenv("RUNTIME_LOG_LEVEL"))
-    return normalize_log_level(level_name, default_level)
+    return normalize_log_level(logger_level(log_name), default_level)
 
 
 def setup_runtime_logger(log_name: str, stream_level=None, default_level="ERROR") -> logging.Logger:
@@ -50,7 +43,7 @@ def setup_runtime_logger(log_name: str, stream_level=None, default_level="ERROR"
     logger.setLevel(effective_level)
     logger.propagate = False
 
-    log_dir = os.path.join(BASE_DIR, "runtime_logs")
+    log_dir = str(RUNTIME_LOG_DIR)
     os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, f"{log_name}.log")
 

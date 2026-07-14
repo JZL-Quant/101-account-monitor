@@ -2,6 +2,8 @@ import asyncio
 import os
 import re
 
+import yaml
+
 from core.account_registry import EXCHANGE_ACCOUNT_BY_ID, get_account_registry
 
 
@@ -53,10 +55,11 @@ def build_account_options():
     ]
 
 
-def infer_account_type(product_name, exchange=None):
-    if (exchange or "").strip().lower() == "gate":
-        return "account"
-    return "account_LTP" if product_name.upper().endswith("_LTP") else "account_pro"
+def normalize_account_type(value):
+    account_type = (value or "").strip()
+    if account_type not in ("account", "account_pro"):
+        raise ValueError("账户类型仅支持普通账户或 Pro 账户")
+    return account_type
 
 
 def parse_initial_unit(value):
@@ -131,7 +134,17 @@ def parse_interest_rate(value, product_name):
     return rate
 
 
-def append_account_config(product_name, initial_unit, ccy, exchange, client, interest_rate, api_key, secret_key):
+def append_account_config(
+    product_name,
+    initial_unit,
+    ccy,
+    exchange,
+    account_type,
+    client,
+    interest_rate,
+    api_key,
+    secret_key,
+):
     global account_infos, accounts
 
     product_name = product_name.strip()
@@ -147,26 +160,37 @@ def append_account_config(product_name, initial_unit, ccy, exchange, client, int
     initial_unit = parse_initial_unit(initial_unit)
     ccy = normalize_ccy(ccy)
     exchange = normalize_exchange(exchange)
+    account_type = normalize_account_type(account_type)
     client = normalize_client(client)
-    account_type = infer_account_type(product_name, exchange)
     interest_rate = parse_interest_rate(interest_rate, product_name)
 
-    with open(CONFIG_PATH, "a", encoding="utf-8", newline="\n") as file:
-        file.write(
-            "\n"
-            f"{product_name}:\n"
-            f"  key: {api_key}\n"
-            f"  secret: {secret_key}\n"
-            f"  initial_unit: {initial_unit:g}\n"
-            f"  account_type: {account_type}\n"
-            f"  exchange: {exchange}\n"
-            f"  interest_rate: {interest_rate:g}\n"
-            f"  client: {client}\n"
-            f"  ccy: {ccy}\n"
-        )
+    config_entry = {
+        product_name: {
+            "key": api_key,
+            "secret": secret_key,
+            "initial_unit": initial_unit,
+            "account_type": account_type,
+            "exchange": exchange,
+            "interest_rate": interest_rate,
+            "client": client,
+            "ccy": ccy,
+        }
+    }
+    yaml_fragment = yaml.safe_dump(config_entry, allow_unicode=True, sort_keys=False)
 
-    account_infos = account_registry.reload()
-    accounts = account_registry.exchange_accounts()
+    original_size = os.path.getsize(CONFIG_PATH)
+    try:
+        with open(CONFIG_PATH, "a", encoding="utf-8", newline="\n") as file:
+            file.write("\n" + yaml_fragment)
+
+        account_infos = account_registry.reload()
+        accounts = account_registry.exchange_accounts()
+    except Exception:
+        with open(CONFIG_PATH, "r+b") as file:
+            file.truncate(original_size)
+        account_registry.reload()
+        raise
+
     start_account_update_task(product_name)
     return account_infos[product_name]
 

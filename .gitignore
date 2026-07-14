@@ -23,6 +23,7 @@ env/
 # Environment and secret files
 .env
 .env.*
+config/local_secrets.py
 accounts_config.yaml
 *.pem
 *.key

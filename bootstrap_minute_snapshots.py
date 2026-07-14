@@ -3,14 +3,10 @@ import os
 import shutil
 
 from core.account_registry import get_account_registry
+from config.settings import ACCOUNTS_CONFIG_PATH, LEGACY_SNAPSHOT_DIRS
 
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-LEGACY_DIRS = [
-    os.path.abspath(os.path.join(BASE_DIR, "..", "Binance_monitor")),
-    os.path.abspath(os.path.join(BASE_DIR, "..", "Binance_monitor_B")),
-    os.path.abspath(os.path.join(BASE_DIR, "..", "Gate_monitor")),
-]
+LEGACY_DIRS = tuple(map(str, LEGACY_SNAPSHOT_DIRS))
 
 
 def count_csv_rows(path):
@@ -58,8 +54,7 @@ def bootstrap_account_snapshot(account_name, account_info):
 
 
 def main():
-    config_path = os.path.join(BASE_DIR, "accounts_config.yaml")
-    accounts = get_account_registry(config_path).local_accounts()
+    accounts = get_account_registry(str(ACCOUNTS_CONFIG_PATH)).local_accounts()
 
     copied = 0
     skipped = 0

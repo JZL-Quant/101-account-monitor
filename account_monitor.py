@@ -9,10 +9,11 @@ from core.feishu import NOTIFIER
 from core.report_cards import build_group_schema2_card
 from core.runtime_logging import setup_runtime_logger
 from core.scheduler import MonitorScheduler
+from config.settings import ACCOUNTS_CONFIG_PATH, PROJECT_ROOT
 from sync_grafana_dashboards import sync_dashboards
 
 # 更改工作目录为文件所在目录
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = str(PROJECT_ROOT)
 os.chdir(BASE_DIR)
 
 
@@ -31,7 +32,7 @@ def safe_metric_val(val):
         return None
 
 # ---------- 动态创建 Prometheus 指标 ----------
-account_registry = get_account_registry(os.path.join(BASE_DIR, 'accounts_config.yaml'))
+account_registry = get_account_registry(str(ACCOUNTS_CONFIG_PATH))
 accounts = account_registry.local_accounts()
 account_metrics = AccountMetricsStore(accounts)
 

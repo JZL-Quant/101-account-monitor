@@ -3,11 +3,11 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PY_SCRIPT="account_monitor_app.py"
 BOOTSTRAP_SCRIPT="bootstrap_minute_snapshots.py"
-SNAPSHOT_DIR="${MONITOR_MINUTE_SNAPSHOT_DIR:-${SCRIPT_DIR}/minute_snapshots}"
+SNAPSHOT_DIR="${SCRIPT_DIR}/minute_snapshots"
 PYTHON_BIN="${PYTHON_BIN:-$HOME/.venv/bin/python}"
 SERVICE_NAME="${MONITOR_SERVICE_NAME:-account_monitor}"
-APP_PORT="${MONITOR_NAV_PORT:-7000}"
-APP_HOST="${MONITOR_NAV_HOST:-0.0.0.0}"
+APP_PORT="${MONITOR_NAV_PORT:-7007}"
+APP_HOST="${MONITOR_NAV_HOST:-127.0.0.1}"
 LOG_DIR="${SCRIPT_DIR}/nv_logs"
 LOG_FILE="${LOG_DIR}/${SERVICE_NAME}_$(date +'%Y%m%d_%H%M%S').log"
 PID_FILE="${LOG_DIR}/${SERVICE_NAME}.pid"
@@ -27,8 +27,8 @@ fi
 if [ -f "${PID_FILE}" ]; then
     PID=$(cat "${PID_FILE}")
     if ps -p "${PID}" > /dev/null; then
-        echo "Error: Script is already running with PID ${PID}"
-        exit 1
+        echo "Account monitor is already running with PID ${PID}; skipping start."
+        exit 0
     fi
     echo "Warning: Stale PID file found. Removing..."
     rm -f "${PID_FILE}"

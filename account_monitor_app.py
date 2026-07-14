@@ -12,12 +12,13 @@ from contextlib import asynccontextmanager
 import uvicorn
 
 from account_monitor import start_monitor_scheduler
+from config.settings import MONITOR_NAV_HOST, MONITOR_NAV_PORT, PROJECT_ROOT
 from nav_service import state
 from nav_service.app_factory import create_app
 from nav_service.routes import update_loop
 
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = str(PROJECT_ROOT)
 os.chdir(BASE_DIR)
 
 state.initialize(BASE_DIR)
@@ -40,6 +41,9 @@ app = create_app(BASE_DIR, lifespan=lifespan)
 
 
 if __name__ == "__main__":
-    host = os.getenv("MONITOR_NAV_HOST", "0.0.0.0")
-    port = int(os.getenv("MONITOR_NAV_PORT", "7000"))
-    uvicorn.run("account_monitor_app:app", host=host, port=port, reload=False)
+    uvicorn.run(
+        "account_monitor_app:app",
+        host=MONITOR_NAV_HOST,
+        port=MONITOR_NAV_PORT,
+        reload=False,
+    )

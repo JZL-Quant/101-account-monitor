@@ -4,6 +4,7 @@ import re
 import yaml
 
 from .exchange_accounts import BinanceExchangeAccount, GateExchangeAccount
+from config.settings import MINUTE_SNAPSHOT_DIR
 
 
 EXCHANGE_ACCOUNT_BY_ID = {
@@ -49,7 +50,7 @@ class AccountRegistry:
 
         global_blacklist = raw_config.get("Blacklist", [])
         return {
-            account_name: self._build_account_info(account_name, account_info, global_blacklist)
+            str(account_name): self._build_account_info(str(account_name), account_info, global_blacklist)
             for account_name, account_info in raw_config.items()
             if isinstance(account_info, dict)
         }
@@ -80,10 +81,8 @@ class AccountRegistry:
     def _minute_snapshot_file(self, exchange_label: str, account_name: str, ccy: str) -> str:
         ccy_label = self._safe_label(ccy.upper())
         file_name = f"{exchange_label}_{account_name}_{ccy_label}_minute_snapshot.csv"
-        base_dir = os.path.dirname(self.config_path)
-        snapshot_dir = os.getenv("MONITOR_MINUTE_SNAPSHOT_DIR", os.path.join(base_dir, "minute_snapshots"))
-        os.makedirs(snapshot_dir, exist_ok=True)
-        return os.path.join(snapshot_dir, file_name)
+        os.makedirs(MINUTE_SNAPSHOT_DIR, exist_ok=True)
+        return os.path.join(MINUTE_SNAPSHOT_DIR, file_name)
 
     @staticmethod
     def _exchange_id(exchange: str) -> str:
@@ -106,6 +105,7 @@ class AccountRegistry:
 
     @staticmethod
     def _account_group(account_name: str) -> str:
+        account_name = str(account_name)
         return account_name.split("_", 1)[0] if "_" in account_name else "Other"
 
 def get_account_registry(config_path: str) -> AccountRegistry:

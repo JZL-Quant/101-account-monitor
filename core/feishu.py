@@ -4,6 +4,7 @@ import os
 import aiohttp
 
 from .runtime_logging import setup_runtime_logger
+from config.settings import FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_BOT_WEBHOOK_URLS
 
 
 RUNTIME_LOGGER = setup_runtime_logger("feishu")
@@ -20,12 +21,9 @@ class FeishuClient:
     @classmethod
     def from_env(cls):
         return cls(
-            webhook_urls=[
-                os.getenv("FEISHU_WEBHOOK_URL", ""),
-                os.getenv("FEISHU_WEBHOOK_URL_1", ""),
-            ],
-            app_id=os.getenv("FEISHU_APP_ID", ""),
-            app_secret=os.getenv("FEISHU_APP_SECRET", ""),
+            webhook_urls=FEISHU_BOT_WEBHOOK_URLS,
+            app_id=FEISHU_APP_ID,
+            app_secret=FEISHU_APP_SECRET,
         )
 
     async def send_payload(self, json_data: dict, retries: int = 5):

@@ -14,21 +14,26 @@ you want to preview counts without saving.
 import argparse
 import copy
 import json
-import os
 from pathlib import Path
 
 import requests
 
-BASE_DIR = Path(__file__).resolve().parent
-CONFIG_PATH = BASE_DIR / "accounts_config.yaml"
+from config.settings import (
+    ACCOUNTS_CONFIG_PATH,
+    ANNUALIZED_DASHBOARD_UID,
+    GRAFANA_API_TOKEN,
+    GRAFANA_PASSWORD,
+    GRAFANA_PROMETHEUS_INSTANCE_ACCOUNT_MONITOR,
+    GRAFANA_PROMETHEUS_UID_ACCOUNT_MONITOR,
+    GRAFANA_URL,
+    GRAFANA_USER,
+    NAV_DASHBOARD_UID,
+    REFERENCE_ANNUALIZED_DASHBOARD_UID,
+    REFERENCE_NAV_DASHBOARD_UID,
+    environment_value,
+)
 
-ANNUALIZED_DASHBOARD_UID = "383918d5-4412-4311-8831-074592cfa7b0"
-NAV_DASHBOARD_UID = "964cbc88-efb7-4c31-92e4-d42476f1ebfb"
-REFERENCE_ANNUALIZED_DASHBOARD_UID = "c7c8c3b8-0c2d-409d-a1af-1e004385788e"
-REFERENCE_NAV_DASHBOARD_UID = "4c9c0ed6-3f42-4bcd-9e5d-ce185b2d9d9e"
-
-# Grafana connection defaults. Credentials must come from environment variables.
-GRAFANA_URL = "http://127.0.0.1:3000"
+CONFIG_PATH = ACCOUNTS_CONFIG_PATH
 
 # IMPORTANT:
 # Default panel count comes from accounts_config.yaml.
@@ -40,8 +45,9 @@ SOURCE_CONFIGS = [
         "exchange": "",
         "panel_exchange": "",
         "metric_prefix": "",
-        "instance": "",
+        "instance": GRAFANA_PROMETHEUS_INSTANCE_ACCOUNT_MONITOR,
         "config_path": CONFIG_PATH,
+        "datasource_uid": GRAFANA_PROMETHEUS_UID_ACCOUNT_MONITOR,
         "datasource_env": "GRAFANA_PROMETHEUS_UID_ACCOUNT_MONITOR",
         "instance_env": "GRAFANA_PROMETHEUS_INSTANCE_ACCOUNT_MONITOR",
     },
@@ -51,6 +57,7 @@ SOURCE_CONFIGS = [
 ANNUALIZED_PANEL_STYLE = {
     "type": "table",
     "pluginVersion": "12.0.0",
+    "gridPos": {"x": 0, "y": 0, "h": 4, "w": 12},
     "fieldConfig": {
         "defaults": {
             "color": {"mode": "thresholds"},
@@ -121,6 +128,7 @@ ANNUALIZED_PANEL_STYLE = {
 NAV_PANEL_STYLE = {
     "type": "timeseries",
     "pluginVersion": "12.0.0",
+    "gridPos": {"x": 0, "y": 0, "h": 8, "w": 12},
     "fieldConfig": {
         "defaults": {
             "color": {"mode": "palette-classic"},
@@ -141,8 +149,8 @@ NAV_PANEL_STYLE = {
                 "lineWidth": 1,
                 "pointSize": 5,
                 "scaleDistribution": {"type": "linear"},
-                "showPoints": "auto",
-                "spanNulls": False,
+                "showPoints": "never",
+                "spanNulls": True,
                 "stacking": {"group": "A", "mode": "none"},
                 "thresholdsStyle": {"mode": "off"},
             },
@@ -281,10 +289,10 @@ class GrafanaClient:
 
     @classmethod
     def from_env(cls):
-        base_url = os.getenv("GRAFANA_URL", GRAFANA_URL).strip()
-        token = os.getenv("GRAFANA_API_TOKEN", "").strip()
-        user = os.getenv("GRAFANA_USER", "").strip()
-        password = os.getenv("GRAFANA_PASSWORD", "").strip()
+        base_url = GRAFANA_URL
+        token = GRAFANA_API_TOKEN
+        user = GRAFANA_USER
+        password = GRAFANA_PASSWORD
         headers = {"Content-Type": "application/json"}
         if token:
             try:
@@ -411,8 +419,10 @@ def panel_exchange(account_info, source_config):
 
 def source_instance(source_config):
     env_name = source_config.get("instance_env")
-    if env_name and env_name in os.environ:
-        return os.getenv(env_name, "").strip()
+    if env_name:
+        configured_value = environment_value(env_name)
+        if configured_value:
+            return configured_value
     return source_config.get("instance", "")
 
 
@@ -462,7 +472,10 @@ def resolve_datasources(client, accounts):
     datasource_by_source = {}
     for source_config in SOURCE_CONFIGS:
         source = source_config["source"]
-        datasource_uid = os.getenv(source_config["datasource_env"], "").strip() or fallback_uid
+        datasource_uid = source_config.get("datasource_uid")
+        if not datasource_uid:
+            datasource_uid = environment_value(source_config["datasource_env"])
+        datasource_uid = datasource_uid or fallback_uid
         datasource_by_source[source] = prometheus_datasource(datasource_uid)
     for account in accounts:
         if account["source"] not in datasource_by_source:
@@ -486,10 +499,10 @@ def datasource_for_account(account, datasource_by_source):
     return datasource_by_source[account["source"]]
 
 
-def load_reference_style(client, dashboard_uid, purpose):
+def load_reference_style(client, dashboard_uid, purpose, preferred_type=None):
     dashboard = client.get_dashboard(dashboard_uid)["dashboard"]
     panels = list(iter_reference_panels(dashboard.get("panels", [])))
-    style_panel = choose_style_panel(panels)
+    style_panel = choose_style_panel(panels, preferred_type)
     if style_panel is None:
         print(f"reference {purpose} dashboard has no reusable panel; using built-in style")
         return None
@@ -504,7 +517,11 @@ def iter_reference_panels(panels):
             yield nested_panel
 
 
-def choose_style_panel(panels):
+def choose_style_panel(panels, preferred_type=None):
+    if preferred_type:
+        for panel in panels:
+            if panel.get("type") == preferred_type:
+                return panel
     preferred_types = ("timeseries", "graph", "stat", "gauge", "bargauge")
     for panel_type in preferred_types:
         for panel in panels:
@@ -524,9 +541,18 @@ def panel_title(account):
     return f"{account['panel_exchange']}_{display_account}_{account['ccy']}"
 
 
+def nav_panel_title(account):
+    display_account = account["name"].replace("_", "")
+    title_parts = [account["panel_exchange"], display_account]
+    if account["name"].upper().startswith("BV_") and account.get("client"):
+        title_parts.append(str(account["client"]).upper())
+    title_parts.append(account["ccy"])
+    return "_".join(title_parts)
+
+
 def dump_reference_style(client, args):
-    annualized_style = load_reference_style(client, args.reference_annualized_uid, "annualized")
-    nav_style = load_reference_style(client, args.reference_nav_uid, "nav")
+    annualized_style = load_reference_style(client, args.reference_annualized_uid, "annualized", "table")
+    nav_style = load_reference_style(client, args.reference_nav_uid, "nav", "timeseries")
     payload = {
         "annualized_style": sanitize_style_for_hardcoding(annualized_style),
         "nav_style": sanitize_style_for_hardcoding(nav_style),
@@ -561,12 +587,12 @@ def build_annualized_panels(accounts, datasource_by_source, style_panel):
                 grid_pos=grid_pos(index, style_panel),
                 datasource=datasource_for_account(account, datasource_by_source),
                 targets=[
-                    prom_target(account, "actual_equity", "Actual Equity", "A", instant=True),
-                    prom_target(account, "annualized_return_24h", "1-Day AR(%)", "B", instant=True),
-                    prom_target(account, "annualized_return_7d", "7-Day AR(%)", "C", instant=True),
-                    prom_target(account, "annualized_return_30d", "30-Day AR(%)", "D", instant=True),
-                    prom_target(account, "annualized_return_1m", "24h AR(%)", "E", instant=True),
-                    prom_target(account, "annualized_return_1h", "24h MED-AR(%)", "F", instant=True),
+                    annualized_prom_target(account, "actual_equity", "Actual Equity", "A"),
+                    annualized_prom_target(account, "annualized_return_24h", "1-Day AR(%)", "C"),
+                    annualized_prom_target(account, "annualized_return_7d", "7-Day AR(%)", "D"),
+                    annualized_prom_target(account, "annualized_return_30d", "30-Day AR(%)", "E"),
+                    annualized_prom_target(account, "annualized_return_1m", "24h AR(%)", "F"),
+                    annualized_prom_target(account, "annualized_return_1h", "24h MED-AR(%)", "B"),
                 ],
                 unit="percent",
                 style_panel=style_panel,
@@ -578,19 +604,19 @@ def build_annualized_panels(accounts, datasource_by_source, style_panel):
 def build_nav_panels(accounts, datasource_by_source, style_panel):
     panels = []
     for index, account in enumerate(accounts):
-        panels.append(
-            timeseries_panel(
-                panel_id=index + 1,
-                title=panel_title(account),
-                grid_pos=grid_pos(index, style_panel),
-                datasource=datasource_for_account(account, datasource_by_source),
-                targets=[
-                    prom_target(account, "actual_equity", "Actual Equity", "A", instant=False),
-                ],
-                unit="none",
-                style_panel=style_panel,
-            )
+        panel = timeseries_panel(
+            panel_id=index + 1,
+            title=nav_panel_title(account),
+            grid_pos=grid_pos(index, style_panel),
+            datasource=datasource_for_account(account, datasource_by_source),
+            targets=[nav_prom_target(account)],
+            unit="none",
+            style_panel=style_panel,
         )
+        for target in panel["targets"]:
+            for key in ("datasource", "exemplar", "hide", "instant"):
+                target.pop(key, None)
+        panels.append(panel)
     return panels
 
 
@@ -611,6 +637,9 @@ def timeseries_panel(panel_id, title, grid_pos, datasource, targets, unit, style
     panel["targets"] = targets
     set_panel_unit(panel, unit)
     set_table_transform_renames(panel, targets)
+    for target in targets:
+        target.pop("_displayName", None)
+        target.pop("_metricName", None)
     return panel
 
 
@@ -633,7 +662,10 @@ def remove_old_panel_state(panel):
 def set_panel_unit(panel, unit):
     field_config = panel.setdefault("fieldConfig", {})
     defaults = field_config.setdefault("defaults", {})
-    defaults["unit"] = unit
+    if unit == "none":
+        defaults.pop("unit", None)
+    else:
+        defaults["unit"] = unit
 
 
 def prom_target(account, suffix, legend, ref_id, instant=False):
@@ -656,6 +688,19 @@ def prom_target(account, suffix, legend, ref_id, instant=False):
         "_displayName": legend,
         "_metricName": metric,
     }
+
+
+def nav_prom_target(account):
+    target = prom_target(account, "actual_equity", "__auto", "A", instant=False)
+    target["expr"] += "> 0"
+    target["editorMode"] = "builder"
+    return target
+
+
+def annualized_prom_target(account, suffix, display_name, ref_id):
+    target = prom_target(account, suffix, display_name, ref_id, instant=True)
+    target["legendFormat"] = display_name
+    return target
 
 
 def metric_expr(metric, instance):
@@ -691,8 +736,8 @@ def set_table_transform_renames(panel, targets):
         transformations.append(organize)
     options = organize.setdefault("options", {})
     options.setdefault("excludeByName", {})
-    options["includeByName"] = table_include_by_name(targets)
-    options["indexByName"] = table_index_by_name(targets)
+    options["includeByName"] = {}
+    options["indexByName"] = {}
     options["renameByName"] = rename_by_name
     for target in targets:
         target.pop("_displayName", None)
@@ -731,12 +776,13 @@ def table_index_by_name(targets):
 
 def labelled_series_renames(metric, legend):
     jobs = (
+        "account-monitor",
         "binance-actual-equity",
         "binance-b-actual-equity",
         "gate-actual-equity",
     )
     instances = (
-        "localhost:8000",
+        "localhost:7007",
         "localhost:8005",
         "localhost:8020",
     )

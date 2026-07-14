@@ -1,6 +1,7 @@
 import asyncio
-import os
 from datetime import datetime, timedelta
+
+from config.settings import DAILY_HOUR, DAILY_MINUTE, RUN_DAILY_ON_STARTUP
 
 
 class MonitorScheduler:
@@ -8,9 +9,9 @@ class MonitorScheduler:
         self._tasks = {"minute": [], "daily": []}
         self._logger = logger
         self._last_daily_run_date = None
-        self._daily_hour = int(os.getenv("BINANCE_DAILY_HOUR", "10"))
-        self._daily_minute = int(os.getenv("BINANCE_DAILY_MINUTE", "31"))
-        self._run_daily_on_startup = os.getenv("BINANCE_RUN_DAILY_ON_STARTUP", "1") == "1"
+        self._daily_hour = DAILY_HOUR
+        self._daily_minute = DAILY_MINUTE
+        self._run_daily_on_startup = RUN_DAILY_ON_STARTUP
 
     def add_task(self, task_type: str, task_func, name: str = None):
         if task_type not in self._tasks:

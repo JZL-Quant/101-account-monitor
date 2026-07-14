@@ -7,9 +7,9 @@ from datetime import datetime, timedelta
 import pandas as pd
 
 from ..runtime_logging import setup_runtime_logger
+from config.settings import MINUTE_SNAPSHOT_DIR
 
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 RUNTIME_LOGGER = setup_runtime_logger("portfolio_nav_fetcher")
 
 
@@ -59,10 +59,9 @@ class BaseExchangeAccount(ABC):
         exchange_label = re.sub(r"\W+", "_", self.exchange[:1].upper() + self.exchange[1:]).strip("_")
         exchange_label = exchange_label or "Exchange"
         ccy_label = re.sub(r"\W+", "_", self.ccy).strip("_") or "USDT"
-        default_snapshot_dir = os.getenv("MONITOR_MINUTE_SNAPSHOT_DIR", os.path.join(BASE_DIR, "minute_snapshots"))
-        os.makedirs(default_snapshot_dir, exist_ok=True)
+        os.makedirs(MINUTE_SNAPSHOT_DIR, exist_ok=True)
         self.minute_snapshot_file = minute_snapshot_file or os.path.join(
-            default_snapshot_dir,
+            MINUTE_SNAPSHOT_DIR,
             f"{exchange_label}_{name}_{ccy_label}_minute_snapshot.csv",
         )
 
