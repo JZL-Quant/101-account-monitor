@@ -139,8 +139,8 @@
                                 <th>币种</th>
                                 <th>账户类型</th>
                                 <th>初始份额</th>
+                                <th>当前本金</th>
                                 <th>利率</th>
-                                <th>数据来源</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -151,8 +151,8 @@
                                 <td><span class="badge">{{ account.ccy }}</span></td>
                                 <td>{{ account.account_type }}</td>
                                 <td>{{ account.initial_unit }}</td>
+                                <td>{{ account.principal }}</td>
                                 <td>{{ account.interest_rate }}</td>
-                                <td>{{ account.source }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>

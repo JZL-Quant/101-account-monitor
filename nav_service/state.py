@@ -71,8 +71,8 @@ def build_account_table_groups():
                 "ccy": account_info.get("ccy", "USDT"),
                 "account_type": account_info.get("account_type", "account"),
                 "initial_unit": account_info.get("initial_unit", ""),
+                "principal": account_info.get("principal", account_info.get("initial_unit", "")),
                 "interest_rate": account_info.get("interest_rate", 0),
-                "source": account_source(account_info),
             }
         )
     return [
