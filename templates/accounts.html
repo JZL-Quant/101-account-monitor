@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>账户列表 - Junli Finance</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: #f3f4f6;
+            color: #111827;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+        }
+        header {
+            background: #ffffff;
+            border-bottom: 1px solid #e5e7eb;
+            padding: 24px;
+        }
+        .header-inner, main { max-width: 1280px; margin: 0 auto; }
+        .header-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+        h1 { margin: 0; color: #dc2626; font-size: 28px; }
+        .subtitle { margin: 6px 0 0; color: #6b7280; }
+        nav { display: flex; flex-wrap: wrap; gap: 10px; }
+        a.button {
+            display: inline-block;
+            padding: 9px 14px;
+            border-radius: 7px;
+            background: #2563eb;
+            color: #fff;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        a.button.secondary { background: #4b5563; }
+        main { padding: 28px 20px 48px; }
+        .summary {
+            margin-bottom: 20px;
+            padding: 16px 18px;
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            color: #374151;
+        }
+        .group {
+            margin-bottom: 24px;
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, .04);
+        }
+        .group-title {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 0;
+            padding: 15px 18px;
+            background: #f9fafb;
+            border-bottom: 1px solid #e5e7eb;
+            font-size: 18px;
+        }
+        .count {
+            color: #6b7280;
+            font-size: 13px;
+            font-weight: normal;
+        }
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; min-width: 850px; }
+        th, td {
+            padding: 13px 16px;
+            border-bottom: 1px solid #e5e7eb;
+            text-align: left;
+            white-space: nowrap;
+        }
+        th {
+            background: #fff;
+            color: #4b5563;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        td { font-size: 14px; }
+        tbody tr:last-child td { border-bottom: 0; }
+        tbody tr:hover { background: #f9fafb; }
+        .account-name { color: #1d4ed8; font-weight: 700; }
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 999px;
+            background: #dbeafe;
+            color: #1e40af;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .empty {
+            padding: 50px 20px;
+            background: #fff;
+            border-radius: 10px;
+            text-align: center;
+            color: #6b7280;
+        }
+        @media (max-width: 720px) {
+            .header-row { align-items: flex-start; flex-direction: column; }
+            header { padding: 20px; }
+            main { padding: 20px 12px 36px; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-inner header-row">
+            <div>
+                <h1>账户列表</h1>
+                <p class="subtitle">Junli Finance 统一账户监控</p>
+            </div>
+            <nav>
+                <a class="button secondary" href="/operations">资金操作</a>
+                <a class="button" href="/accounts/new">新增账户</a>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <div class="summary">当前共 <strong>{{ account_count }}</strong> 个账户，按交易所分组展示。API Key 和 Secret 不会在本页面显示。</div>
+
+        {% if account_groups %}
+            {% for group in account_groups %}
+            <section class="group">
+                <h2 class="group-title">
+                    <span>{{ group.exchange }}</span>
+                    <span class="count">{{ group.accounts | length }} 个账户</span>
+                </h2>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>账户名称</th>
+                                <th>客户</th>
+                                <th>币种</th>
+                                <th>账户类型</th>
+                                <th>初始份额</th>
+                                <th>利率</th>
+                                <th>数据来源</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for account in group.accounts %}
+                            <tr>
+                                <td class="account-name">{{ account.name }}</td>
+                                <td>{{ account.client or "-" }}</td>
+                                <td><span class="badge">{{ account.ccy }}</span></td>
+                                <td>{{ account.account_type }}</td>
+                                <td>{{ account.initial_unit }}</td>
+                                <td>{{ account.interest_rate }}</td>
+                                <td>{{ account.source }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            {% endfor %}
+        {% else %}
+            <div class="empty">当前没有已配置账户。</div>
+        {% endif %}
+    </main>
+</body>
+</html>

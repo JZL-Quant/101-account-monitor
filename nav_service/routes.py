@@ -1,12 +1,17 @@
 import asyncio
+import logging
 
 from fastapi import Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from core.metrics import collector_registry
+from sync_grafana_dashboards import sync_dashboards
 from . import state
 from .schemas import DividendRequest, SubscriptionRequest
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def register_routes(app, templates):
@@ -62,7 +67,18 @@ def register_routes(app, templates):
     async def read_root():
         return Response(generate_latest(collector_registry), media_type=CONTENT_TYPE_LATEST)
 
-    @app.get("/accounts")
+    @app.get("/accounts", response_class=HTMLResponse)
+    async def accounts_page(request: Request):
+        return templates.TemplateResponse(
+            "accounts.html",
+            {
+                "request": request,
+                "account_groups": state.build_account_table_groups(),
+                "account_count": len(state.account_infos),
+            },
+        )
+
+    @app.get("/api/accounts")
     async def list_accounts():
         return {"accounts": state.build_account_options()}
 
@@ -102,8 +118,23 @@ def register_routes(app, templates):
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"新增账户失败: {exc}")
 
+        grafana_result = None
+        grafana_error = ""
+        try:
+            grafana_result = await asyncio.to_thread(
+                sync_dashboards,
+                account_names=[product_name],
+            )
+        except Exception as exc:
+            LOGGER.exception("Grafana Panel creation failed for account %s", product_name)
+            grafana_error = str(exc)
+
+        message = f"{product_name} 新增成功"
+        if grafana_error:
+            message += "，但 Grafana Panel 创建失败，请检查服务日志或手动执行修复脚本"
+
         return {
-            "message": f"{product_name} 新增成功",
+            "message": message,
             "account_name": product_name,
             "account_type": account_info["account_type"],
             "initial_unit": account_info["initial_unit"],
@@ -111,6 +142,8 @@ def register_routes(app, templates):
             "interest_rate": account_info["interest_rate"],
             "ccy": account_info["ccy"],
             "exchange": account_info["exchange"],
+            "grafana": grafana_result,
+            "grafana_error": bool(grafana_error),
         }
 
     @app.get("/operations", response_class=HTMLResponse)

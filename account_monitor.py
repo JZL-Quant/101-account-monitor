@@ -10,7 +10,6 @@ from core.report_cards import build_group_schema2_card
 from core.runtime_logging import setup_runtime_logger
 from core.scheduler import MonitorScheduler
 from config.settings import ACCOUNTS_CONFIG_PATH, PROJECT_ROOT
-from sync_grafana_dashboards import sync_dashboards
 
 # 更改工作目录为文件所在目录
 BASE_DIR = str(PROJECT_ROOT)
@@ -505,13 +504,6 @@ async def send_daily_report_cards(cards: list):
         await asyncio.gather(*(NOTIFIER.send_card(card) for card in cards))
 
 
-async def sync_grafana_dashboards_daily():
-    """Sync Grafana dashboards after the daily report; never block reporting."""
-    try:
-        await asyncio.to_thread(sync_dashboards, logger=RUNTIME_LOGGER)
-    except Exception:
-        RUNTIME_LOGGER.exception("[grafana_dashboard_sync] failed")
-
 async def update_metrics():
     """分钟级任务：更新最新实际权益、24 小时点对点收益和 1 小时中位数收益。"""
     for account_name, account_info in accounts.items():
@@ -535,7 +527,6 @@ async def update_annualized_metrics():
 
     cards = await build_daily_report_cards(accounts)
     await send_daily_report_cards(cards)
-    await sync_grafana_dashboards_daily()
 
 def start_monitor_scheduler():
     scheduler = MonitorScheduler(RUNTIME_LOGGER)

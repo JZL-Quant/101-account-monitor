@@ -55,6 +55,29 @@ def build_account_options():
     ]
 
 
+def build_account_table_groups():
+    """构建账户展示表格，明确排除 key、secret 等敏感字段。"""
+    groups = {}
+    for account_name, account_info in sorted(account_infos.items()):
+        exchange = account_info.get("exchange_label") or account_info.get("exchange", "Binance")
+        exchange = str(exchange)
+        groups.setdefault(exchange, []).append(
+            {
+                "name": account_name,
+                "client": account_info.get("client", ""),
+                "ccy": account_info.get("ccy", "USDT"),
+                "account_type": account_info.get("account_type", "account"),
+                "initial_unit": account_info.get("initial_unit", ""),
+                "interest_rate": account_info.get("interest_rate", 0),
+                "source": account_source(account_info),
+            }
+        )
+    return [
+        {"exchange": exchange, "accounts": rows}
+        for exchange, rows in sorted(groups.items())
+    ]
+
+
 def normalize_account_type(value):
     account_type = (value or "").strip()
     if account_type not in ("account", "account_pro"):

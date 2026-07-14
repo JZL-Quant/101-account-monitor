@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-Generate Grafana panels for the two test dashboards from the account config.
+Create missing Grafana account panels from the account config.
 
-This script builds panels from scratch. It does not copy panels from the old
-dashboards. Panel styles are hardcoded from a one-time export of the old
-dashboards. Account panels are generated from accounts_config.yaml in this
-directory.
+By default the script only appends panels whose titles do not exist. Existing
+panels, including manually edited or manually created panels, are left intact.
+Use --force-rebuild only for an explicit full rebuild.
 
 Default behavior writes to the two lljtest dashboards. Use --dry-run only when
 you want to preview counts without saving.
@@ -193,6 +192,7 @@ def main():
         annualized_uid=args.annualized_uid,
         nav_uid=args.nav_uid,
         dry_run=args.dry_run,
+        force_rebuild=args.force_rebuild,
         logger=None,
     )
 
@@ -203,9 +203,14 @@ def sync_dashboards(
     annualized_uid=ANNUALIZED_DASHBOARD_UID,
     nav_uid=NAV_DASHBOARD_UID,
     dry_run=False,
+    force_rebuild=False,
+    account_names=None,
     logger=None,
 ):
     accounts = load_accounts(config_args or [])
+    if account_names:
+        selected_names = set(account_names)
+        accounts = [account for account in accounts if account["name"] in selected_names]
     client = client or GrafanaClient.from_env()
     datasource_by_source = resolve_datasources(client, accounts)
     annualized_response = client.get_dashboard(annualized_uid)
@@ -216,9 +221,16 @@ def sync_dashboards(
     annualized_panels = build_annualized_panels(accounts, datasource_by_source, annualized_style)
     nav_panels = build_nav_panels(accounts, datasource_by_source, nav_style)
 
+    annualized_panels, annualized_added = panels_for_save(
+        annualized_response, annualized_panels, force_rebuild
+    )
+    nav_panels, nav_added = panels_for_save(nav_response, nav_panels, force_rebuild)
+
     emit(logger, "info", "accounts: %s", len(accounts))
-    emit(logger, "info", "annualized dashboard uid: %s, panels: %s", annualized_uid, len(annualized_panels))
-    emit(logger, "info", "nav dashboard uid: %s, panels: %s", nav_uid, len(nav_panels))
+    mode = "force rebuild" if force_rebuild else "append only"
+    emit(logger, "info", "sync mode: %s", mode)
+    emit(logger, "info", "annualized dashboard uid: %s, total panels: %s, added: %s", annualized_uid, len(annualized_panels), annualized_added)
+    emit(logger, "info", "nav dashboard uid: %s, total panels: %s, added: %s", nav_uid, len(nav_panels), nav_added)
     emit(logger, "info", "annualized style panel: %s", style_summary(annualized_style))
     emit(logger, "info", "nav style panel: %s", style_summary(nav_style))
     emit(logger, "info", "datasources:")
@@ -227,21 +239,28 @@ def sync_dashboards(
 
     if dry_run:
         emit(logger, "info", "dry-run only; no dashboard was saved")
-        return
+        return {"annualized_added": annualized_added, "nav_added": nav_added}
 
-    save_generated_dashboard(
-        client,
-        annualized_response,
-        annualized_panels,
-        "auto generate annualized panels from accounts_config.yaml",
-    )
-    save_generated_dashboard(
-        client,
-        nav_response,
-        nav_panels,
-        "auto generate nav panels from accounts_config.yaml",
-    )
-    emit(logger, "info", "saved both dashboards")
+    if not force_rebuild and annualized_added == 0 and nav_added == 0:
+        emit(logger, "info", "all account panels already exist; no dashboard was saved")
+        return {"annualized_added": 0, "nav_added": 0}
+
+    if force_rebuild or annualized_added:
+        save_generated_dashboard(
+            client,
+            annualized_response,
+            annualized_panels,
+            "force rebuild annualized panels" if force_rebuild else "append missing annualized panels",
+        )
+    if force_rebuild or nav_added:
+        save_generated_dashboard(
+            client,
+            nav_response,
+            nav_panels,
+            "force rebuild nav panels" if force_rebuild else "append missing nav panels",
+        )
+    emit(logger, "info", "dashboard changes saved")
+    return {"annualized_added": annualized_added, "nav_added": nav_added}
 
 
 def emit(logger, level, message, *args):
@@ -259,7 +278,7 @@ def parse_args():
         default=[],
         help=(
             "Optional config source in source:exchange:metric_prefix:path format. "
-            "By default the script reads Binance_monitor, Binance_monitor_B, and Gate_monitor configs."
+            "By default the script reads this project's accounts_config.yaml."
         ),
     )
     parser.add_argument("--annualized-uid", default=ANNUALIZED_DASHBOARD_UID)
@@ -277,6 +296,11 @@ def parse_args():
         help="Optional file path for --dump-reference-style JSON output",
     )
     parser.add_argument("--dry-run", action="store_true", help="Preview generated panel counts without saving")
+    parser.add_argument(
+        "--force-rebuild",
+        action="store_true",
+        help="Replace every panel in both dashboards. Without this flag, only missing account panels are appended.",
+    )
     args = parser.parse_args()
     return args
 
@@ -840,6 +864,56 @@ def grid_pos(index, style_panel=None):
         "w": width,
         "h": height,
     }
+
+
+def panels_for_save(dashboard_response, generated_panels, force_rebuild=False):
+    """Return the panels to save and the number of generated panels added."""
+    if force_rebuild:
+        return copy.deepcopy(generated_panels), len(generated_panels)
+
+    existing_panels = copy.deepcopy(dashboard_response["dashboard"].get("panels") or [])
+    existing_titles = {
+        panel.get("title") for panel in existing_panels if panel.get("title")
+    }
+    missing_panels = [
+        copy.deepcopy(panel)
+        for panel in generated_panels
+        if panel.get("title") not in existing_titles
+    ]
+    if not missing_panels:
+        return existing_panels, 0
+
+    next_id = max(
+        (panel.get("id", 0) for panel in existing_panels if isinstance(panel.get("id"), int)),
+        default=0,
+    ) + 1
+    next_y = max(
+        (
+            int(panel.get("gridPos", {}).get("y", 0))
+            + int(panel.get("gridPos", {}).get("h", 0))
+            for panel in existing_panels
+        ),
+        default=0,
+    )
+
+    row_y = next_y
+    row_x = 0
+    row_height = 0
+    for panel in missing_panels:
+        panel["id"] = next_id
+        next_id += 1
+        grid = panel.setdefault("gridPos", {})
+        width = max(1, min(int(grid.get("w", 12)), 24))
+        height = max(1, int(grid.get("h", 8)))
+        if row_x and row_x + width > 24:
+            row_y += row_height
+            row_x = 0
+            row_height = 0
+        grid.update({"x": row_x, "y": row_y, "w": width, "h": height})
+        row_x += width
+        row_height = max(row_height, height)
+
+    return existing_panels + missing_panels, len(missing_panels)
 
 
 def save_generated_dashboard(client, dashboard_response, panels, message):

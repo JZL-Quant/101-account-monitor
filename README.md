@@ -11,7 +11,7 @@
 - 定时发送飞书收益报告
 - 通过 Web 页面管理申赎、分红和新增账户
 - 支持从旧版 Binance/Gate 监控目录迁移历史快照
-- 支持自动同步 Grafana 账户面板
+- 新增账户时自动追加对应的 Grafana Panel
 
 ## 项目结构
 
@@ -169,8 +169,9 @@ chmod +x start_account_monitor.sh
 启动后可访问：
 
 - 操作页面：`http://127.0.0.1:7007/operations`
+- 账户表格：`http://127.0.0.1:7007/accounts`
+- 账户 JSON API：`http://127.0.0.1:7007/api/accounts`
 - 新增账户：`http://127.0.0.1:7007/accounts/new`
-- 账户列表：`http://127.0.0.1:7007/accounts`
 - Prometheus 指标：`http://127.0.0.1:7007/metrics`
 
 ## 数据与指标
@@ -192,16 +193,30 @@ scrape_configs:
       - targets: ["127.0.0.1:7007"]
 ```
 
-## Grafana 面板同步
+## Grafana Panel 管理
 
-先在 `config/local_secrets.py` 中配置 `GRAFANA_API_TOKEN`（或用户名、密码），然后执行：
+新增账户成功后，服务会为该账户追加年化收益和净值 Panel。它只处理本次新增的账户，不会覆盖、修改或恢复其他 Panel；因此在 Grafana 页面中的人工调整和删除会被保留。
+
+`sync_grafana_dashboards.py` 不再由每日任务调用，仅用于首次初始化或人工修复。先在 `config/local_secrets.py` 中配置 `GRAFANA_API_TOKEN`（或用户名、密码），然后执行：
 
 ```bash
 export GRAFANA_URL=http://127.0.0.1:3000
 python sync_grafana_dashboards.py
 ```
 
-脚本会读取账户配置并更新年化收益和净值面板。`pannel_example/` 中提供了面板 JSON 示例。
+默认模式只追加当前 Dashboard 中标题不存在的账户 Panel，已有 Panel 原样保留。可先预览：
+
+```bash
+python sync_grafana_dashboards.py --dry-run
+```
+
+只有明确需要清空人工 Panel 并按账户配置重建整个 Dashboard 时，才使用：
+
+```bash
+python sync_grafana_dashboards.py --force-rebuild
+```
+
+> `--force-rebuild` 会覆盖目标 Dashboard 的全部 Panel，属于破坏性操作。日常修复不要使用该参数。
 
 ## Nginx 与 HTTPS 部署
 
