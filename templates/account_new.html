@@ -105,7 +105,7 @@
 
         form.addEventListener("submit", async (event) => {
             event.preventDefault();
-            productName.value = [productPrefix.value, productSequence.value, client.value]
+            productName.value = [productPrefix.value, productSequence.value]
                 .map((part) => part.trim())
                 .join("_");
             submitButton.disabled = true;
