@@ -2,6 +2,7 @@
 
 import os
 import re
+from datetime import datetime
 from pathlib import Path
 
 try:
@@ -28,6 +29,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ACCOUNTS_CONFIG_PATH = PROJECT_ROOT / "accounts_config.yaml"
 MINUTE_SNAPSHOT_DIR = PROJECT_ROOT / "minute_snapshots"
 RUNTIME_LOG_DIR = PROJECT_ROOT / "runtime_logs"
+RUNTIME_LOG_FILE = Path(
+    os.getenv(
+        "RUNTIME_LOG_FILE",
+        str(RUNTIME_LOG_DIR / f"runtime_{datetime.now():%Y%m%d_%H%M%S}.log"),
+    )
+)
 LEGACY_SNAPSHOT_DIRS = (
     PROJECT_ROOT.parent / "Binance_monitor",
     PROJECT_ROOT.parent / "Binance_monitor_B",

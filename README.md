@@ -168,7 +168,7 @@ chmod +x start_account_monitor.sh
 1. 检查 PID，避免重复启动；
 2. 在快照目录为空时执行历史数据迁移；
 3. 将服务放到后台运行；
-4. 把 PID 写入 `runtime_logs/`，所有运行日志追加到 `runtime_logs/runtime.log`，并在每行标注日志来源。
+4. 把 PID 写入 `runtime_logs/`；启动时生成 `runtime_YYYYMMDD_HHMMSS.log`，跨天后切换到新日期的 `runtime_YYYYMMDD_000000.log`，并在每行标注日志来源。Uvicorn access log 默认关闭。
 
 启动后可访问：
 

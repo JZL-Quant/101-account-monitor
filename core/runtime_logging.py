@@ -1,10 +1,12 @@
+import asyncio
 import logging
 import os
 import re
 import threading
-from datetime import date
+from datetime import date, datetime, time, timedelta
+from pathlib import Path
 
-from config.settings import RUNTIME_LOG_DIR, logger_level
+from config.settings import RUNTIME_LOG_DIR, RUNTIME_LOG_FILE, logger_level
 
 
 logging.addLevelName(logging.INFO, "MESSAGE")
@@ -23,6 +25,35 @@ _log_date_cache_day = None
 _log_date_cache = ()
 _log_date_cache_lock = threading.Lock()
 _LOG_DATE_PREFIX = re.compile(r"^(\d{4}-\d{2}-\d{2})")
+
+
+class DailyRuntimeFileHandler(logging.FileHandler):
+    """启动时使用时间戳文件，跨天后切换到当天 000000 文件。"""
+
+    def __init__(self, filename, encoding="utf-8"):
+        self._current_date = date.today()
+        self._log_dir = Path(filename).resolve().parent
+        super().__init__(filename=filename, mode="a", encoding=encoding)
+
+    def _switch_to_date(self, target_date):
+        self.acquire()
+        try:
+            if self.stream is not None:
+                self.flush()
+                self.stream.close()
+            self.baseFilename = str(
+                self._log_dir / f"runtime_{target_date:%Y%m%d}_000000.log"
+            )
+            self.stream = self._open()
+            self._current_date = target_date
+        finally:
+            self.release()
+
+    def emit(self, record):
+        today = date.today()
+        if today != self._current_date:
+            self._switch_to_date(today)
+        super().emit(record)
 
 
 def normalize_log_level(level, default=logging.INFO) -> int:
@@ -53,15 +84,14 @@ def setup_runtime_logger(log_name: str, stream_level=None, default_level="WARNIN
 
     log_dir = str(RUNTIME_LOG_DIR)
     os.makedirs(log_dir, exist_ok=True)
-    log_file = os.path.join(log_dir, "runtime.log")
+    log_file = str(RUNTIME_LOG_FILE)
 
     if _shared_file_handler is None:
         formatter = logging.Formatter(
             "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
         )
-        _shared_file_handler = logging.FileHandler(
+        _shared_file_handler = DailyRuntimeFileHandler(
             filename=log_file,
-            mode="a",
             encoding="utf-8",
         )
         _shared_file_handler.setLevel(logging.NOTSET)
@@ -69,6 +99,16 @@ def setup_runtime_logger(log_name: str, stream_level=None, default_level="WARNIN
 
     logger.addHandler(_shared_file_handler)
     return logger
+
+
+async def maintain_daily_runtime_log():
+    """在本地时间午夜主动创建并切换到当天的 000000 日志文件。"""
+    while True:
+        now = datetime.now()
+        next_midnight = datetime.combine(now.date() + timedelta(days=1), time.min)
+        await asyncio.sleep((next_midnight - now).total_seconds())
+        if _shared_file_handler is not None:
+            _shared_file_handler._switch_to_date(date.today())
 
 
 def _runtime_log_files():

@@ -9,7 +9,7 @@ SERVICE_NAME="${MONITOR_SERVICE_NAME:-account_monitor}"
 APP_PORT="${MONITOR_NAV_PORT:-7007}"
 APP_HOST="${MONITOR_NAV_HOST:-127.0.0.1}"
 LOG_DIR="${SCRIPT_DIR}/runtime_logs"
-LOG_FILE="${LOG_DIR}/runtime.log"
+LOG_FILE="${LOG_DIR}/runtime_$(date +'%Y%m%d_%H%M%S').log"
 PID_FILE="${LOG_DIR}/${SERVICE_NAME}.pid"
 
 mkdir -p "${LOG_DIR}"
@@ -44,7 +44,7 @@ else
     echo "Minute snapshots already exist. Skipping bootstrap."
 fi
 
-RUNTIME_LOG_LEVEL="${RUNTIME_LOG_LEVEL:-WARNING}" MONITOR_NAV_HOST="${APP_HOST}" MONITOR_NAV_PORT="${APP_PORT}" nohup "${PYTHON_BIN}" -u -W ignore "${SCRIPT_DIR}/${PY_SCRIPT}" >> "${LOG_FILE}" 2>&1 &
+RUNTIME_LOG_FILE="${LOG_FILE}" RUNTIME_LOG_LEVEL="${RUNTIME_LOG_LEVEL:-WARNING}" MONITOR_NAV_HOST="${APP_HOST}" MONITOR_NAV_PORT="${APP_PORT}" nohup "${PYTHON_BIN}" -u -W ignore "${SCRIPT_DIR}/${PY_SCRIPT}" > /dev/null 2>&1 &
 echo $! > "${PID_FILE}"
 
 echo "Account monitor started."
