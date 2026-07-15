@@ -38,7 +38,7 @@ python -m ops.sync_grafana_dashboards --dry-run
 python -m ops.sync_grafana_dashboards
 ```
 
-默认模式只追加标题不存在的账户 Panel，保留已有 Panel。新生成的净值 Panel 会过滤 `actual_equity <= 1e-7`，年化指标查询会排除 `NaN` 和 `±Inf`。
+默认模式只追加标题不存在的账户 Panel，保留已有 Panel。新生成的净值 Panel 会过滤 `actual_equity <= 1e-7`；年化指标查询会展示 `NaN`，并将 `±Inf` 转换为 `NaN`。
 
 仅在明确需要按账户配置重建整个 Dashboard 时使用：
 
