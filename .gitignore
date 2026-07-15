@@ -42,6 +42,7 @@ Binance_monitor_merged_test_llj/minute_snapshots/*
 !Binance_monitor_merged_test_llj/minute_snapshots/.gitignore
 *_minute_snapshot.csv
 all_accounts_annualized*.csv
+backfill_output/
 
 # OS files
 .DS_Store

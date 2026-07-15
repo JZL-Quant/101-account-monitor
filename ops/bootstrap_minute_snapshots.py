@@ -1,6 +1,11 @@
 import csv
 import os
 import shutil
+import sys
+from pathlib import Path
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.account_registry import get_account_registry
 from config.settings import ACCOUNTS_CONFIG_PATH, LEGACY_SNAPSHOT_DIRS

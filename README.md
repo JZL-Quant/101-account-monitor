@@ -20,8 +20,11 @@ account_monitor/
 ├── account_monitor_app.py          # FastAPI 服务入口
 ├── account_monitor.py              # 指标计算、日报及调度逻辑
 ├── accounts_config.example.yaml    # 账户配置示例
-├── bootstrap_minute_snapshots.py   # 历史分钟数据迁移工具
-├── sync_grafana_dashboards.py      # Grafana 面板同步工具
+├── ops/                            # 运维工具
+│   ├── bootstrap_minute_snapshots.py  # 历史分钟数据迁移
+│   ├── sync_grafana_dashboards.py     # Grafana 面板同步
+│   ├── backfill_prometheus.py          # Prometheus 历史数据回灌
+│   └── backfill_prometheus.sh          # 自动停服、备份、导入和启动
 ├── start_account_monitor.sh        # Linux 后台启动脚本
 ├── core/                           # 配置、账户、交易所、指标和通知模块
 ├── nav_service/                    # Web 服务、路由及状态管理
@@ -211,7 +214,7 @@ minute_snapshots/<exchange>_<account>_<ccy>_minute_snapshot.csv
 | `post_dividend_annualized_return` | 每日 | — 当前脚本未使用 | 最近一次分红的下一天起，日报日中位数首尾之间的简单年化收益。无分红或不足两天时无有效值。 |
 | `report_actual_equity` | 每日 | — 当前脚本未使用 | Q<sub>d</sub>，即最近有效日北京时间 17:00–18:00 的实际权益中位数；用于飞书日报展示及组合加权。 |
 
-这里的“Grafana 正在使用”以 `sync_grafana_dashboards.py` 当前生成的 PromQL Target 为准。已有 Dashboard 中人工添加或保留的 Panel 可能还会引用其他指标。
+这里的“Grafana 正在使用”以 `ops/sync_grafana_dashboards.py` 当前生成的 PromQL Target 为准。已有 Dashboard 中人工添加或保留的 Panel 可能还会引用其他指标。
 
 具体公式如下。公式中的收益率结果已经乘以 `100%`，即指标值 `12.5` 表示 `12.5%`。
 
@@ -335,32 +338,9 @@ scrape_configs:
       - targets: ["127.0.0.1:7007"]
 ```
 
-## Grafana Panel 管理
+## 运维工具
 
-新增账户成功后，服务会为该账户追加年化收益和净值 Panel。它只处理本次新增的账户，不会覆盖、修改或恢复其他 Panel；因此在 Grafana 页面中的人工调整和删除会被保留。
-
-`sync_grafana_dashboards.py` 不再由每日任务调用，仅用于首次初始化或人工修复。先在 `config/local_secrets.py` 中配置 `GRAFANA_API_TOKEN`（或用户名、密码），然后执行：
-
-```bash
-export GRAFANA_URL=http://127.0.0.1:3000
-python sync_grafana_dashboards.py
-```
-
-默认模式只追加当前 Dashboard 中标题不存在的账户 Panel，已有 Panel 原样保留。可先预览：
-
-新生成的净值 Panel 会过滤 `actual_equity <= 1e-7` 的无效值。
-
-```bash
-python sync_grafana_dashboards.py --dry-run
-```
-
-只有明确需要清空人工 Panel 并按账户配置重建整个 Dashboard 时，才使用：
-
-```bash
-python sync_grafana_dashboards.py --force-rebuild
-```
-
-> `--force-rebuild` 会覆盖目标 Dashboard 的全部 Panel，属于破坏性操作。日常修复不要使用该参数。
+Grafana 同步、历史快照迁移和 Prometheus 回灌脚本统一放在 `ops/`。请从项目根目录使用 `python -m ops.<工具名>` 执行，完整参数和安全操作说明见 [`ops/README.md`](ops/README.md)。
 
 ## Nginx 与 HTTPS 部署
 
@@ -399,7 +379,7 @@ curl -I https://risk.example.com/operations
 2. 实现 `get_actual_equity()`，按需重写 `from_account_info()`；
 3. 在 `core/exchange_accounts/__init__.py` 导出新类；
 4. 在 `core/account_registry.py` 的交易所映射中注册；
-5. 如需迁移旧数据，在 `bootstrap_minute_snapshots.py` 中增加历史目录；
+5. 如需迁移旧数据，在 `ops/bootstrap_minute_snapshots.py` 中增加历史目录；
 6. 使用新交易所账户配置验证快照、指标和 Web 操作流程。
 
 基础语法检查示例：

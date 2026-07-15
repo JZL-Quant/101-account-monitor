@@ -2,7 +2,8 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PY_SCRIPT="account_monitor_app.py"
-BOOTSTRAP_SCRIPT="bootstrap_minute_snapshots.py"
+BOOTSTRAP_SCRIPT="ops/bootstrap_minute_snapshots.py"
+BOOTSTRAP_MODULE="ops.bootstrap_minute_snapshots"
 SNAPSHOT_DIR="${SCRIPT_DIR}/minute_snapshots"
 PYTHON_BIN="${PYTHON_BIN:-$HOME/.venv/bin/python}"
 SERVICE_NAME="${MONITOR_SERVICE_NAME:-account_monitor}"
@@ -36,7 +37,7 @@ fi
 
 if [ ! -d "${SNAPSHOT_DIR}" ] || ! compgen -G "${SNAPSHOT_DIR}/*_minute_snapshot.csv" > /dev/null; then
     echo "Minute snapshot directory is missing or empty. Running bootstrap..."
-    if ! "${PYTHON_BIN}" -u -W ignore "${SCRIPT_DIR}/${BOOTSTRAP_SCRIPT}"; then
+    if ! cd "${SCRIPT_DIR}" || ! "${PYTHON_BIN}" -u -W ignore -m "${BOOTSTRAP_MODULE}"; then
         echo "Error: Bootstrap script failed."
         exit 1
     fi

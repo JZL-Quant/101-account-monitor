@@ -14,7 +14,7 @@ from core.runtime_logging import (
     iter_runtime_log_file_date,
     runtime_log_files_for_date,
 )
-from sync_grafana_dashboards import sync_dashboards
+from ops.sync_grafana_dashboards import sync_dashboards
 from . import state
 from .schemas import (
     DividendRequest,

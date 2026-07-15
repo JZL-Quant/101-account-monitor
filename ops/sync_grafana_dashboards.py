@@ -13,9 +13,13 @@ you want to preview counts without saving.
 import argparse
 import copy
 import json
+import sys
 from pathlib import Path
 
 import requests
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config.settings import (
     ACCOUNTS_CONFIG_PATH,
