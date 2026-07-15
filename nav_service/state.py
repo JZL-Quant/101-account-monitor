@@ -14,11 +14,14 @@ account_registry = None
 account_infos = {}
 accounts = {}
 account_update_tasks = {}
+_on_account_added = None
 LOGGER = logging.getLogger(__name__)
 
 
-def initialize(base_dir):
+def initialize(base_dir, on_account_added=None):
     global BASE_DIR, CONFIG_PATH, account_registry, account_infos, accounts
+    global _on_account_added
+    _on_account_added = on_account_added
 
     BASE_DIR = base_dir
     CONFIG_PATH = os.path.join(BASE_DIR, "accounts_config.yaml")
@@ -244,6 +247,8 @@ def append_account_config(
         account_info = account_infos[product_name]
         account_cls = EXCHANGE_ACCOUNT_BY_ID[account_info["exchange_id"]]
         accounts[product_name] = account_cls.from_account_info(product_name, account_info)
+        if _on_account_added is not None:
+            _on_account_added(product_name, account_info)
     except Exception:
         with open(CONFIG_PATH, "r+b") as file:
             file.truncate(original_size)

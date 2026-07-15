@@ -1,6 +1,7 @@
 import asyncio
 import csv
 import inspect
+import math
 import os
 import re
 from abc import ABC, abstractmethod
@@ -9,7 +10,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 
 from ..runtime_logging import setup_runtime_logger
-from config.settings import MINUTE_SNAPSHOT_DIR
+from config.settings import MINUTE_SNAPSHOT_DIR, MIN_VALID_CALCULATION_VALUE
 
 
 RUNTIME_LOGGER = setup_runtime_logger("portfolio_nav_fetcher")
@@ -19,6 +20,16 @@ SNAPSHOT_COLUMNS = [
     "dividend_amount", "interest_deduction", "withdraw_amount",
     "subscription_amount",
 ]
+
+
+def is_valid_calculation_value(value, *, denominator=False):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(number):
+        return False
+    return not denominator or abs(number) > MIN_VALID_CALCULATION_VALUE
 
 
 def read_minute_snapshot_file(minute_snapshot_file):
@@ -152,7 +163,13 @@ class BaseExchangeAccount(ABC):
         self._snapshot_schema_checked = True
 
     def record_minute_snapshot(self, actual_equity, total_unit):
+        if not is_valid_calculation_value(actual_equity):
+            raise ValueError(f"{self.name} actual_equity 不是有限数")
+        if not is_valid_calculation_value(total_unit, denominator=True):
+            raise ValueError(f"{self.name} total_unit 小于等于有效阈值")
         net_value = actual_equity / total_unit
+        if not is_valid_calculation_value(net_value):
+            raise ValueError(f"{self.name} net_value 不是有限数")
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         os.makedirs(os.path.dirname(self.minute_snapshot_file), exist_ok=True)
 
@@ -199,6 +216,8 @@ class BaseExchangeAccount(ABC):
 
     def update_post_event_net_values(self, event_time, new_total_unit):
         try:
+            if not is_valid_calculation_value(new_total_unit, denominator=True):
+                raise ValueError("事件后的 total_unit 小于等于有效阈值")
             df = pd.read_csv(self.minute_snapshot_file, parse_dates=["timestamp"])
             event_time = pd.to_datetime(event_time)
             mask = df["timestamp"] > event_time
@@ -209,8 +228,11 @@ class BaseExchangeAccount(ABC):
                     event_time,
                 )
                 return
+            new_net_values = pd.to_numeric(df.loc[mask, "actual_equity"], errors="coerce") / new_total_unit
+            if not new_net_values.map(is_valid_calculation_value).all():
+                raise ValueError("事件后的净值包含 NaN 或 Inf")
             df.loc[mask, "total_unit"] = new_total_unit
-            df.loc[mask, "net_value"] = df.loc[mask, "actual_equity"] / new_total_unit
+            df.loc[mask, "net_value"] = new_net_values
             df.to_csv(self.minute_snapshot_file, index=False)
             self._latest_total_unit = new_total_unit
             RUNTIME_LOGGER.info(
@@ -262,12 +284,21 @@ class BaseExchangeAccount(ABC):
         if prior_rows.empty:
             raise ValueError(f"{event_time} 之前没有净值数据，无法处理{action_label}")
         net_value_before = prior_rows["net_value"].iloc[-1]
+        if not is_valid_calculation_value(net_value_before, denominator=True):
+            raise ValueError(f"{event_time} 之前的净值无效，无法处理{action_label}")
 
         reduced_unit = amount / net_value_before
         new_total_unit = max_row["total_unit"] - reduced_unit
-        if new_total_unit <= 0:
-            raise ValueError(f"{action_label}金额过大，处理后的总份额必须大于 0")
+        if not is_valid_calculation_value(new_total_unit, denominator=True):
+            raise ValueError(
+                f"{action_label}金额过大，处理后的总份额必须大于 "
+                f"{MIN_VALID_CALCULATION_VALUE:g}"
+            )
+        if not is_valid_calculation_value(actual_equity):
+            raise ValueError(f"{action_label}时 actual_equity 无效")
         new_net_value = actual_equity / new_total_unit
+        if not is_valid_calculation_value(new_net_value):
+            raise ValueError(f"{action_label}后的净值无效")
 
         df.loc[df["timestamp"] == event_time, "total_unit"] = new_total_unit
         df.loc[df["timestamp"] == event_time, "net_value"] = new_net_value
@@ -314,10 +345,18 @@ class BaseExchangeAccount(ABC):
         if prior_rows.empty:
             raise ValueError(f"{subscription_time} 之前没有净值数据，无法处理申购")
         net_value_before = prior_rows["net_value"].iloc[-1]
+        if not is_valid_calculation_value(net_value_before, denominator=True):
+            raise ValueError(f"{subscription_time} 之前的净值无效，无法处理申购")
 
         added_unit = subscription_amount / net_value_before
         new_total_unit = max_row["total_unit"] + added_unit
+        if not is_valid_calculation_value(new_total_unit, denominator=True):
+            raise ValueError("申购后的 total_unit 无效")
+        if not is_valid_calculation_value(actual_equity):
+            raise ValueError("申购时 actual_equity 无效")
         new_net_value = actual_equity / new_total_unit
+        if not is_valid_calculation_value(new_net_value):
+            raise ValueError("申购后的净值无效")
 
         df.loc[df["timestamp"] == subscription_time, "total_unit"] = new_total_unit
         df.loc[df["timestamp"] == subscription_time, "net_value"] = new_net_value

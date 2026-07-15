@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 
-from account_monitor import start_monitor_scheduler
+from account_monitor import register_monitor_account, start_monitor_scheduler
 from config.settings import MONITOR_NAV_HOST, MONITOR_NAV_PORT, PROJECT_ROOT
 from nav_service import state
 from nav_service.app_factory import create_app
@@ -21,7 +21,7 @@ from nav_service.routes import update_loop
 BASE_DIR = str(PROJECT_ROOT)
 os.chdir(BASE_DIR)
 
-state.initialize(BASE_DIR)
+state.initialize(BASE_DIR, on_account_added=register_monitor_account)
 
 
 @asynccontextmanager

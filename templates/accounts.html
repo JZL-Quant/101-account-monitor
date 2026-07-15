@@ -33,6 +33,7 @@
             font-size: 14px;
         }
         a.button.secondary { background: #4b5563; }
+        a.button.download { background: #059669; padding: 7px 11px; }
         main { padding: 28px 20px 48px; }
         .summary {
             margin-bottom: 20px;
@@ -41,6 +42,28 @@
             border: 1px solid #e5e7eb;
             border-radius: 10px;
             color: #374151;
+        }
+        .log-download {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: -8px 0 20px;
+            color: #4b5563;
+            font-size: 13px;
+        }
+        .log-download select {
+            padding: 6px 9px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            background: #fff;
+        }
+        .log-download button {
+            padding: 7px 11px;
+            border: 0;
+            border-radius: 6px;
+            background: #4b5563;
+            color: #fff;
+            cursor: pointer;
         }
         .group {
             margin-bottom: 24px;
@@ -123,6 +146,17 @@
     <main>
         <div class="summary">当前共 <strong>{{ account_count }}</strong> 个账户，按交易所分组展示。API Key 和 Secret 不会在本页面显示。</div>
 
+        <form class="log-download" action="/accounts/logs/download" method="get">
+            <span>下载运行日志：</span>
+            <select name="log_date" required {% if not log_dates %}disabled{% endif %}>
+                {% for log_date in log_dates %}
+                <option value="{{ log_date }}">{{ log_date }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" {% if not log_dates %}disabled{% endif %}>下载</button>
+            {% if not log_dates %}<span>暂无日志</span>{% endif %}
+        </form>
+
         {% if account_groups %}
             {% for group in account_groups %}
             <section class="group">
@@ -141,6 +175,7 @@
                                 <th>初始份额</th>
                                 <th>当前本金</th>
                                 <th>利率</th>
+                                <th>快照</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -153,6 +188,9 @@
                                 <td>{{ account.initial_unit }}</td>
                                 <td>{{ account.principal }}</td>
                                 <td>{{ account.interest_rate }}</td>
+                                <td>
+                                    <a class="button download" href="/accounts/{{ account.name }}/snapshot">下载 CSV</a>
+                                </td>
                             </tr>
                             {% endfor %}
                         </tbody>

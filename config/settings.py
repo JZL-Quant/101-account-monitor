@@ -41,7 +41,10 @@ DAILY_HOUR = int(os.getenv("BINANCE_DAILY_HOUR", "10"))
 DAILY_MINUTE = int(os.getenv("BINANCE_DAILY_MINUTE", "31"))
 RUN_DAILY_ON_STARTUP = os.getenv("BINANCE_RUN_DAILY_ON_STARTUP", "1") == "1"
 
-DEFAULT_RUNTIME_LOG_LEVEL = os.getenv("RUNTIME_LOG_LEVEL", "ERROR")
+DEFAULT_RUNTIME_LOG_LEVEL = os.getenv("RUNTIME_LOG_LEVEL", "WARNING")
+
+# 收益率及净值计算的最小有效分母，避免零值或极小值导致溢出。
+MIN_VALID_CALCULATION_VALUE = 1e-7
 
 
 def logger_level(log_name: str) -> str:

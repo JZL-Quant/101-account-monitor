@@ -1,11 +1,13 @@
 import asyncio
 import logging
+import os
 
 from fastapi import Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from core.metrics import collector_registry
+from core.runtime_logging import available_runtime_log_dates, iter_runtime_log_date
 from sync_grafana_dashboards import sync_dashboards
 from . import state
 from .schemas import (
@@ -142,13 +144,44 @@ def register_routes(app, templates):
 
     @app.get("/accounts", response_class=HTMLResponse)
     async def accounts_page(request: Request):
+        log_dates = await asyncio.to_thread(available_runtime_log_dates)
         return templates.TemplateResponse(
             "accounts.html",
             {
                 "request": request,
                 "account_groups": state.build_account_table_groups(),
                 "account_count": len(state.account_infos),
+                "log_dates": log_dates,
             },
+        )
+
+    @app.get("/accounts/logs/download")
+    async def download_runtime_log(log_date: str):
+        available_dates = await asyncio.to_thread(available_runtime_log_dates)
+        if log_date not in available_dates:
+            raise HTTPException(status_code=404, detail="所选日期没有可下载的日志")
+        return StreamingResponse(
+            iter_runtime_log_date(log_date),
+            media_type="text/plain; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="runtime-{log_date}.log"'
+            },
+        )
+
+    @app.get("/accounts/{account_name}/snapshot")
+    async def download_account_snapshot(account_name: str):
+        account_info = state.account_infos.get(account_name)
+        if account_info is None:
+            raise HTTPException(status_code=404, detail="账户不存在")
+
+        snapshot_file = account_info["minute_snapshot_file"]
+        if not os.path.isfile(snapshot_file):
+            raise HTTPException(status_code=404, detail="该账户的快照 CSV 尚未生成")
+
+        return FileResponse(
+            path=snapshot_file,
+            media_type="text/csv; charset=utf-8",
+            filename=os.path.basename(snapshot_file),
         )
 
     @app.get("/api/accounts")

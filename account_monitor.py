@@ -9,7 +9,11 @@ from core.feishu import NOTIFIER
 from core.report_cards import build_group_schema2_card
 from core.runtime_logging import setup_runtime_logger
 from core.scheduler import MonitorScheduler
-from config.settings import ACCOUNTS_CONFIG_PATH, PROJECT_ROOT
+from config.settings import (
+    ACCOUNTS_CONFIG_PATH,
+    MIN_VALID_CALCULATION_VALUE,
+    PROJECT_ROOT,
+)
 
 # 更改工作目录为文件所在目录
 BASE_DIR = str(PROJECT_ROOT)
@@ -30,10 +34,22 @@ def safe_metric_val(val):
     except Exception:
         return None
 
+
+def is_valid_denominator(value):
+    """分母必须是有限数，且绝对值大于统一的极小值阈值。"""
+    safe_value = safe_metric_val(value)
+    return safe_value is not None and abs(safe_value) > MIN_VALID_CALCULATION_VALUE
+
 # ---------- 动态创建 Prometheus 指标 ----------
 account_registry = get_account_registry(str(ACCOUNTS_CONFIG_PATH))
 accounts = account_registry.local_accounts()
 account_metrics = AccountMetricsStore(accounts)
+
+
+def register_monitor_account(account_name: str, account_info: dict):
+    """将运行时新增账户同时加入调度集合和 Prometheus 注册表。"""
+    account_metrics.add_account(account_name, account_info)
+    accounts[account_name] = account_info
 
 def read_minute_snapshot_file(minute_snapshot_file):
     """读取账户分钟快照 CSV，并把 timestamp 解析为时间列。"""
@@ -48,9 +64,11 @@ async def calculate_simple_annualized_return(data, period_days):
         return None
     start_value = data.iloc[0]
     end_value = data.iloc[-1]
+    if period_days <= 0 or not is_valid_denominator(start_value) or safe_metric_val(end_value) is None:
+        return None
     total_return = (end_value / start_value) - 1
     simple_annualized_return = total_return / period_days * 365
-    return simple_annualized_return
+    return safe_metric_val(simple_annualized_return)
 
 async def get_daily_median_net_value(account_name, account_info, snapshot_df=None):
     """取每日北京时间 17-18 点的净值中位数，作为日报收益计算基准。"""
@@ -128,7 +146,7 @@ async def update_actual_equity(account_name, account_info, snapshot_df=None):
         latest_row = df.iloc[-1]
         actual_equity_value = latest_row['actual_equity']
 
-        if pd.notna(actual_equity_value):
+        if safe_metric_val(actual_equity_value) is not None:
             account_metrics.set(account_name, 'actual_equity', actual_equity_value)
             RUNTIME_LOGGER.info("%s 实际净值更新成功: %s", account_name, actual_equity_value)
         else:
@@ -141,7 +159,7 @@ async def update_actual_equity(account_name, account_info, snapshot_df=None):
 async def update_report_actual_equity(account_name, account_info, snapshot_df=None):
     """用日报口径的实际权益中位数刷新指标缓存。"""
     actual_equity = await get_daily_median_actual_equity(account_name, account_info, snapshot_df)
-    if actual_equity is None or pd.isna(actual_equity):
+    if safe_metric_val(actual_equity) is None:
         account_metrics.set(account_name, "report_actual_equity", float("nan"))
         RUNTIME_LOGGER.warning("%s 日报实际权益中位数无效，已设置为 NaN", account_name)
         return
@@ -168,11 +186,15 @@ async def calculate_annualized_return_1m(account_name, account_info, snapshot_df
 
         previous = df_before.iloc[-1]
 
-        if pd.notna(latest['net_value']) and pd.notna(previous['net_value']) and previous['net_value'] != 0:
+        if safe_metric_val(latest['net_value']) is not None and is_valid_denominator(previous['net_value']):
             period_return = (latest['net_value'] / previous['net_value']) - 1
             annualized = period_return * 365  # 一天年化
-            account_metrics.set(account_name, "annualized_return_1m", annualized * 100)
-            RUNTIME_LOGGER.info("%s 24小时年化收益率更新成功: %.6f%%", account_name, annualized * 100)
+            annualized_percent = safe_metric_val(annualized * 100)
+            if annualized_percent is not None:
+                account_metrics.set(account_name, "annualized_return_1m", annualized_percent)
+                RUNTIME_LOGGER.info("%s 24小时年化收益率更新成功: %.6f%%", account_name, annualized_percent)
+                return
+            account_metrics.set(account_name, "annualized_return_1m", float('nan'))
         else:
             account_metrics.set(account_name, "annualized_return_1m", float('nan'))
             RUNTIME_LOGGER.warning("%s 无法计算24小时年化收益率，已设置为 NaN", account_name)
@@ -208,11 +230,15 @@ async def calculate_annualized_return_1h(account_name, account_info, snapshot_df
             return
         previous_median = previous_window['net_value'].median()
 
-        if pd.notna(current_median) and pd.notna(previous_median) and previous_median != 0:
+        if safe_metric_val(current_median) is not None and is_valid_denominator(previous_median):
             period_return = (current_median / previous_median) - 1
             annualized = period_return * 365  # 线性年化
-            account_metrics.set(account_name, "annualized_return_1h", annualized * 100)
-            RUNTIME_LOGGER.info("%s 24小时年化收益率更新成功（中位数版）: %.6f%%", account_name, annualized * 100)
+            annualized_percent = safe_metric_val(annualized * 100)
+            if annualized_percent is not None:
+                account_metrics.set(account_name, "annualized_return_1h", annualized_percent)
+                RUNTIME_LOGGER.info("%s 24小时年化收益率更新成功（中位数版）: %.6f%%", account_name, annualized_percent)
+                return
+            account_metrics.set(account_name, "annualized_return_1h", float('nan'))
         else:
             account_metrics.set(account_name, "annualized_return_1h", float('nan'))
             RUNTIME_LOGGER.warning("%s 无法计算年化收益率（中位数版），已设置为 NaN", account_name)
@@ -286,12 +312,23 @@ async def calculate_annualized_cumulative_return(account_name, account_info, sna
         total_days = (df['timestamp'].iloc[-1].date() - initial_date).days
 
         # initial_unit 作为初始权益口径；分红加回、申购扣除后计算累计收益。
-        cumulative_return_value = (final_actual_equity + total_dividends - total_subscriptions) / account_info["initial_unit"] - 1
+        initial_unit = account_info["initial_unit"]
+        numerator = final_actual_equity + total_dividends - total_subscriptions
+        if not is_valid_denominator(initial_unit) or safe_metric_val(numerator) is None:
+            account_metrics.set(account_name, "cumulative_return", float('nan'))
+            RUNTIME_LOGGER.warning("%s 累计收益率输入无效，已设置为 NaN", account_name)
+            return
+        cumulative_return_value = numerator / initial_unit - 1
 
         if total_days > 0:
             annualized_cumulative_return = cumulative_return_value * (365 / total_days)
-            account_metrics.set(account_name, "cumulative_return", annualized_cumulative_return * 100)
-            RUNTIME_LOGGER.info("%s 年化累计收益率更新成功: %s%%", account_name, annualized_cumulative_return * 100)
+            annualized_percent = safe_metric_val(annualized_cumulative_return * 100)
+            account_metrics.set(
+                account_name,
+                "cumulative_return",
+                annualized_percent if annualized_percent is not None else float('nan'),
+            )
+            RUNTIME_LOGGER.info("%s 年化累计收益率更新结果: %s%%", account_name, annualized_percent)
         else:
             account_metrics.set(account_name, "cumulative_return", float('nan'))
 
@@ -335,12 +372,17 @@ async def calculate_post_dividend_annualized_return(account_name, account_info, 
         end_value = post_dividend_data.iloc[-1]
         days = (post_dividend_data.index[-1] - post_dividend_data.index[0]).days
 
-        total_return = (end_value / start_value) - 1
-        annualized_return = total_return / days * 365
+        if days <= 0 or not is_valid_denominator(start_value) or safe_metric_val(end_value) is None:
+            account_metrics.set(account_name, 'post_dividend_return', float('nan'))
+            RUNTIME_LOGGER.warning("%s 分红后收益率输入无效，已设置为 NaN", account_name)
+            return
 
-        if pd.notna(annualized_return):  # 确保年化收益率有效
-            account_metrics.set(account_name, 'post_dividend_return', annualized_return * 100)
-            RUNTIME_LOGGER.info("%s 分红后年化收益率: %s%%", account_name, annualized_return * 100)
+        total_return = (end_value / start_value) - 1
+        annualized_percent = safe_metric_val(total_return / days * 365 * 100)
+
+        if annualized_percent is not None:
+            account_metrics.set(account_name, 'post_dividend_return', annualized_percent)
+            RUNTIME_LOGGER.info("%s 分红后年化收益率: %s%%", account_name, annualized_percent)
         else:
             account_metrics.set(account_name, 'post_dividend_return', float('nan'))
             RUNTIME_LOGGER.warning("%s 分红后年化收益率为 NaN", account_name)
@@ -362,8 +404,10 @@ async def calculate_combined_period_annualized_return(accounts: dict, period_day
             else:
                 ar = account_metrics.read(account_name, f'annualized_return_{period_days}d')
 
-            if math.isnan(actual_equity) or math.isnan(ar):
-                RUNTIME_LOGGER.warning("%s actual_equity 或收益率为 NaN，跳过", account_name)
+            actual_equity = safe_metric_val(actual_equity)
+            ar = safe_metric_val(ar)
+            if actual_equity is None or ar is None or actual_equity <= MIN_VALID_CALCULATION_VALUE:
+                RUNTIME_LOGGER.warning("%s actual_equity 或收益率无效，跳过", account_name)
                 continue
 
             total_equity += actual_equity
@@ -373,11 +417,15 @@ async def calculate_combined_period_annualized_return(accounts: dict, period_day
             RUNTIME_LOGGER.exception("处理账户 %s 出错", account_name)
             continue
 
-    if total_equity == 0:
+    if total_equity <= MIN_VALID_CALCULATION_VALUE:
         RUNTIME_LOGGER.warning("所有账户实际净值为 0，无法计算加权收益率")
         return None
 
     combined_annualized_return = weighted_return / total_equity
+    combined_annualized_return = safe_metric_val(combined_annualized_return)
+    if combined_annualized_return is None:
+        RUNTIME_LOGGER.warning("组合收益率不是有限数")
+        return None
     RUNTIME_LOGGER.info("Binance 组合 %s 日加权年化收益率: %.6f%%", period_days, combined_annualized_return)
     return combined_annualized_return
 
@@ -394,9 +442,9 @@ def calculate_combined_return_from_results(sorted_results, metric_key):
         total_equity += actual_equity
         weighted_return += actual_equity * annualized_return
 
-    if total_equity == 0:
+    if total_equity <= MIN_VALID_CALCULATION_VALUE:
         return None
-    return weighted_return / total_equity
+    return safe_metric_val(weighted_return / total_equity)
 
 def calculate_group_interest_rate_percent(sorted_results, group_accounts):
     """按实际权益加权计算组内资金成本基准，返回百分比。"""
@@ -418,8 +466,8 @@ def calculate_group_interest_rate_percent(sorted_results, group_accounts):
             total_equity += actual_equity
             weighted_rate += actual_equity * rate_pct
 
-    if total_equity > 0:
-        return weighted_rate / total_equity
+    if total_equity > MIN_VALID_CALCULATION_VALUE:
+        return safe_metric_val(weighted_rate / total_equity)
     if rates:
         return sum(rates) / len(rates)
     return None
@@ -506,7 +554,7 @@ async def send_daily_report_cards(cards: list):
 
 async def update_metrics():
     """分钟级任务：更新最新实际权益、24 小时点对点收益和 1 小时中位数收益。"""
-    for account_name, account_info in accounts.items():
+    for account_name, account_info in list(accounts.items()):
         try:
             snapshot_df = read_minute_snapshot_file(account_info["minute_snapshot_file"])
             if snapshot_df is None:
@@ -519,7 +567,7 @@ async def update_metrics():
 
 async def update_annualized_metrics():
     """日级任务入口：编排 metrics 计算、日报卡片生成和发送。"""
-    for account_name, account_info in accounts.items():
+    for account_name, account_info in list(accounts.items()):
         try:
             snapshot_df = read_minute_snapshot_file(account_info["minute_snapshot_file"])
             if snapshot_df is None:
