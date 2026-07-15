@@ -724,6 +724,13 @@ def nav_prom_target(account):
 
 def annualized_prom_target(account, suffix, display_name, ref_id):
     target = prom_target(account, suffix, display_name, ref_id, instant=True)
+    series = target["expr"]
+    target["expr"] = (
+        f"({series} == {series})\n"
+        f"and ({series} < +Inf)\n"
+        f"and ({series} > -Inf)"
+    )
+    target["editorMode"] = "code"
     target["legendFormat"] = display_name
     return target
 

@@ -61,11 +61,12 @@ class BinanceExchangeAccount(BaseExchangeAccount):
 
         if account_type == "account":
             spot_balances = await self.client.papi_get_balance()
+            account_data = await self.client.privateGetAccount()
             futures_data = await self.client.papi_get_um_account()
             rw_data = await self.fetch_rwusd_account()
             return {
                 "spot_balances": spot_balances,
-                "spotaccount_balances": [],
+                "spotaccount_balances": account_data["balances"],
                 "futures_data": futures_data,
                 "rw_data": rw_data,
             }
@@ -91,6 +92,7 @@ class BinanceExchangeAccount(BaseExchangeAccount):
             await self.client.fapiPrivateV3GetAccount()
         elif self.account_type == "account":
             await self.client.papi_get_balance()
+            await self.client.privateGetAccount()
             await self.client.papi_get_um_account()
         else:
             raise ValueError(f"Unsupported Binance account_type: {self.account_type}")
