@@ -721,7 +721,25 @@ def prom_target(account, suffix, legend, ref_id, instant=False):
 def nav_prom_target(account):
     target = prom_target(account, "actual_equity", "__auto", "A", instant=False)
     series = target["expr"]
-    target["expr"] = f"{series} > 1e-7"
+    target["expr"] = (
+        f"(\n  {series} > 1e-7\n)\n"
+        "and\n"
+        f"(\n  {series}\n"
+        "  >\n"
+        "  quantile_over_time(\n"
+        "    0.01,\n"
+        f"    {series}[$__range] @ end()\n"
+        "  )\n"
+        ")\n"
+        "and\n"
+        f"(\n  {series}\n"
+        "  <\n"
+        "  quantile_over_time(\n"
+        "    0.99,\n"
+        f"    {series}[$__range] @ end()\n"
+        "  )\n"
+        ")"
+    )
     target["editorMode"] = "builder"
     return target
 
