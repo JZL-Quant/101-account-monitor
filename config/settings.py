@@ -53,6 +53,9 @@ DEFAULT_RUNTIME_LOG_LEVEL = os.getenv("RUNTIME_LOG_LEVEL", "WARNING")
 # 收益率及净值计算的最小有效分母，避免零值或极小值导致溢出。
 MIN_VALID_CALCULATION_VALUE = 1e-7
 
+# 单个运行日志最大 100 MiB；达到上限后按当前时间切换新文件。
+MAX_RUNTIME_LOG_BYTES = 100 * 1024 * 1024
+
 
 def logger_level(log_name: str) -> str:
     safe_name = re.sub(r"\W+", "_", log_name).strip("_").upper()

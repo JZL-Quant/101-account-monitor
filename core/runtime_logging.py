@@ -3,10 +3,17 @@ import logging
 import os
 import re
 import threading
+import zipfile
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
-from config.settings import RUNTIME_LOG_DIR, RUNTIME_LOG_FILE, logger_level
+from config.settings import (
+    MAX_RUNTIME_LOG_BYTES,
+    RUNTIME_LOG_DIR,
+    RUNTIME_LOG_FILE,
+    logger_level,
+)
 
 
 logging.addLevelName(logging.INFO, "MESSAGE")
@@ -30,29 +37,57 @@ _LOG_DATE_PREFIX = re.compile(r"^(\d{4}-\d{2}-\d{2})")
 class DailyRuntimeFileHandler(logging.FileHandler):
     """启动时使用时间戳文件，跨天后切换到当天 000000 文件。"""
 
-    def __init__(self, filename, encoding="utf-8"):
+    def __init__(self, filename, max_bytes, encoding="utf-8"):
         self._current_date = date.today()
         self._log_dir = Path(filename).resolve().parent
+        self._max_bytes = max_bytes
         super().__init__(filename=filename, mode="a", encoding=encoding)
+
+    def _available_timestamp_path(self, now):
+        base_name = f"runtime_{now:%Y%m%d_%H%M%S}"
+        candidate = self._log_dir / f"{base_name}.log"
+        sequence = 1
+        while candidate.exists():
+            candidate = self._log_dir / f"{base_name}_{sequence:02d}.log"
+            sequence += 1
+        return candidate
+
+    def _switch_file(self, target_path, target_date):
+        if self.stream is not None:
+            self.flush()
+            self.stream.close()
+        self.baseFilename = str(target_path)
+        self.stream = self._open()
+        self._current_date = target_date
 
     def _switch_to_date(self, target_date):
         self.acquire()
         try:
-            if self.stream is not None:
-                self.flush()
-                self.stream.close()
-            self.baseFilename = str(
-                self._log_dir / f"runtime_{target_date:%Y%m%d}_000000.log"
+            self._switch_file(
+                self._log_dir / f"runtime_{target_date:%Y%m%d}_000000.log",
+                target_date,
             )
-            self.stream = self._open()
-            self._current_date = target_date
         finally:
             self.release()
+
+    def _switch_for_size(self, now):
+        self._switch_file(self._available_timestamp_path(now), now.date())
+
+    def _would_exceed_limit(self, record):
+        if self._max_bytes <= 0 or not os.path.exists(self.baseFilename):
+            return False
+        current_size = os.path.getsize(self.baseFilename)
+        if current_size == 0:
+            return False
+        message_size = len((self.format(record) + self.terminator).encode(self.encoding or "utf-8"))
+        return current_size + message_size > self._max_bytes
 
     def emit(self, record):
         today = date.today()
         if today != self._current_date:
             self._switch_to_date(today)
+        if self._would_exceed_limit(record):
+            self._switch_for_size(datetime.now())
         super().emit(record)
 
 
@@ -92,6 +127,7 @@ def setup_runtime_logger(log_name: str, stream_level=None, default_level="WARNIN
         )
         _shared_file_handler = DailyRuntimeFileHandler(
             filename=log_file,
+            max_bytes=MAX_RUNTIME_LOG_BYTES,
             encoding="utf-8",
         )
         _shared_file_handler.setLevel(logging.NOTSET)
@@ -149,14 +185,39 @@ def available_runtime_log_dates():
         return list(_log_date_cache)
 
 
-def iter_runtime_log_date(selected_date: str):
-    """流式返回指定日期的日志，并保留异常堆栈等续行。"""
+def iter_runtime_log_file_date(path, selected_date: str):
+    """流式返回单个文件内指定日期的日志，并保留异常堆栈等续行。"""
+    include_line = False
+    with Path(path).open("r", encoding="utf-8", errors="replace") as log_file:
+        for line in log_file:
+            line_date = _line_date(line)
+            if line_date is not None:
+                include_line = line_date.isoformat() == selected_date
+            if include_line:
+                yield line.encode("utf-8")
+
+
+def runtime_log_files_for_date(selected_date: str):
+    """返回至少包含一条所选日期日志的文件。"""
+    matched_files = []
     for path in _runtime_log_files():
-        include_line = False
-        with path.open("r", encoding="utf-8", errors="replace") as log_file:
-            for line in log_file:
-                line_date = _line_date(line)
-                if line_date is not None:
-                    include_line = line_date.isoformat() == selected_date
-                if include_line:
-                    yield line.encode("utf-8")
+        if any(True for _ in iter_runtime_log_file_date(path, selected_date)):
+            matched_files.append(path)
+    return matched_files
+
+
+def build_runtime_log_archive(paths, selected_date: str):
+    """将多个日志文件中所选日期的内容写入临时 ZIP。"""
+    with NamedTemporaryFile(prefix="runtime_logs_", suffix=".zip", delete=False) as temp_file:
+        archive_path = temp_file.name
+
+    try:
+        with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for path in paths:
+                with archive.open(Path(path).name, "w") as archived_log:
+                    for chunk in iter_runtime_log_file_date(path, selected_date):
+                        archived_log.write(chunk)
+        return archive_path
+    except Exception:
+        os.unlink(archive_path)
+        raise

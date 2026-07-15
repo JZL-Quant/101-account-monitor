@@ -5,9 +5,15 @@ import os
 from fastapi import Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from starlette.background import BackgroundTask
 
 from core.metrics import collector_registry
-from core.runtime_logging import available_runtime_log_dates, iter_runtime_log_date
+from core.runtime_logging import (
+    available_runtime_log_dates,
+    build_runtime_log_archive,
+    iter_runtime_log_file_date,
+    runtime_log_files_for_date,
+)
 from sync_grafana_dashboards import sync_dashboards
 from . import state
 from .schemas import (
@@ -160,8 +166,23 @@ def register_routes(app, templates):
         available_dates = await asyncio.to_thread(available_runtime_log_dates)
         if log_date not in available_dates:
             raise HTTPException(status_code=404, detail="所选日期没有可下载的日志")
+        log_files = await asyncio.to_thread(runtime_log_files_for_date, log_date)
+        if not log_files:
+            raise HTTPException(status_code=404, detail="所选日期没有可下载的日志")
+        if len(log_files) > 1:
+            archive_path = await asyncio.to_thread(
+                build_runtime_log_archive,
+                log_files,
+                log_date,
+            )
+            return FileResponse(
+                archive_path,
+                media_type="application/zip",
+                filename=f"runtime-{log_date}.zip",
+                background=BackgroundTask(os.unlink, archive_path),
+            )
         return StreamingResponse(
-            iter_runtime_log_date(log_date),
+            iter_runtime_log_file_date(log_files[0], log_date),
             media_type="text/plain; charset=utf-8",
             headers={
                 "Content-Disposition": f'attachment; filename="runtime-{log_date}.log"'
