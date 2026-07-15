@@ -54,31 +54,41 @@ python -m ops.sync_grafana_dashboards --force-rebuild
 
 ### Linux 一键回灌（推荐）
 
-确认 Prometheus 的数据目录后，可以用一条命令完成：缺口检测、生成回灌包、停止服务、完整备份、导入、启动和状态检查。
+如果 Prometheus 是从官方压缩包解压后直接运行的，只需指定它的目录。脚本会自动使用目录里的 `promtool`、`prometheus`、`prometheus.yml` 和 `data/`，并按当前进程原有参数重启。
 
 ```bash
 sudo bash ops/backfill_prometheus.sh \
-  --prometheus-data-dir /var/lib/prometheus \
+  --prometheus-dir /home/ec2-user/prometheus-3.3.0-rc.0.linux-arm64 \
+  --python-bin /home/ec2-user/.venv/bin/python \
   --account BV10_LTP_USDT \
-  --start 2026-07-14T00:00:00Z \
+  --start 2025-07-14T00:00:00Z \
   --end 2026-07-14T20:00:00Z
+```
+
+复制多行命令时，反斜杠 `\` 必须是每行最后一个字符，后面不能有空格，而且续行之间不能插入空行。也可以直接使用不易出错的单行形式：
+
+```bash
+sudo bash ops/backfill_prometheus.sh --prometheus-dir /home/ec2-user/prometheus-3.3.0-rc.0.linux-arm64 --python-bin /home/ec2-user/.venv/bin/python --account BV10_LTP_USDT --start 2025-07-14T00:00:00Z --end 2026-07-14T20:00:00Z
 ```
 
 脚本在停服务前会显示数据目录、备份目录和 block 数，并要求输入 `yes`。自动化环境可增加 `--yes`。
 
-如果项目虚拟环境不在项目根目录的 `.venv`，需要明确指定：
+`--prometheus-dir` 模式要求 Prometheus 使用 `--web.enable-lifecycle` 启动，以便脚本通过 `/-/quit` 安全停止。你参考工程的启动命令已经包含该参数。
+
+如果 Prometheus 由 systemd 管理，则改用数据目录和服务名：
 
 ```bash
---python-bin /home/ec2-user/.venv/bin/python
-```
-
-如果 systemd 服务名不是 `prometheus`，增加：
-
-```bash
---prometheus-service prometheus-server
+sudo bash ops/backfill_prometheus.sh \
+  --prometheus-data-dir /var/lib/prometheus \
+  --prometheus-service prometheus \
+  --python-bin /home/ec2-user/.venv/bin/python \
+  --start 2025-07-14T00:00:00Z \
+  --end 2026-07-14T20:00:00Z
 ```
 
 脚本会在数据目录旁创建完整备份，例如 `/var/lib/prometheus_backup_20260715_120000`。发生异常时会尝试重新启动 Prometheus。确认 Grafana 数据正常前不要删除备份。
+
+`promtool` 是 Prometheus 官方压缩包自带的工具。使用 `--prometheus-dir` 时无需安装，脚本会自动找到 `${prometheus目录}/promtool`；只有 systemd 安装且系统 PATH 中没有它时，才需要用 `--promtool /实际路径/promtool` 指定。
 
 ### 什么时候使用
 
