@@ -39,6 +39,17 @@ def read_minute_snapshot_file(minute_snapshot_file):
     return pd.read_csv(minute_snapshot_file, parse_dates=["timestamp"])
 
 
+def parse_snapshot_timestamps(df, snapshot_file):
+    """Parse timestamps for calculations without changing the CSV text column."""
+    timestamps = pd.to_datetime(df["timestamp"], format="mixed", errors="coerce")
+    invalid_count = int(timestamps.isna().sum())
+    if invalid_count:
+        raise ValueError(
+            f"快照文件 {snapshot_file} 中有 {invalid_count} 行 timestamp 无法解析"
+        )
+    return timestamps
+
+
 class BaseExchangeAccount(ABC):
     supported_account_types = ()
 
@@ -218,9 +229,10 @@ class BaseExchangeAccount(ABC):
         try:
             if not is_valid_calculation_value(new_total_unit, denominator=True):
                 raise ValueError("事件后的 total_unit 小于等于有效阈值")
-            df = pd.read_csv(self.minute_snapshot_file, parse_dates=["timestamp"])
+            df = pd.read_csv(self.minute_snapshot_file)
+            timestamps = parse_snapshot_timestamps(df, self.minute_snapshot_file)
             event_time = pd.to_datetime(event_time)
-            mask = df["timestamp"] > event_time
+            mask = timestamps > event_time
             if not mask.any():
                 RUNTIME_LOGGER.warning(
                     "[%s] ⚠️ 事件时间 %s 后没有可更新的数据",
@@ -263,7 +275,7 @@ class BaseExchangeAccount(ABC):
             raise
 
         try:
-            df = pd.read_csv(self.minute_snapshot_file, parse_dates=["timestamp"])
+            df = pd.read_csv(self.minute_snapshot_file)
         except FileNotFoundError:
             raise ValueError(f"找不到 {self.name} 的快照文件，无法处理{action_label}")
         for column in SNAPSHOT_COLUMNS:
@@ -271,16 +283,19 @@ class BaseExchangeAccount(ABC):
                 df[column] = ""
         df = df[SNAPSHOT_COLUMNS]
 
+        timestamps = parse_snapshot_timestamps(df, self.minute_snapshot_file)
+
         event_date = pd.to_datetime(event_date).date()
-        day_data = df[df["timestamp"].dt.date == event_date].copy()
+        day_data = df[timestamps.dt.date == event_date].copy()
         if day_data.empty:
             raise ValueError(f"找不到 {event_date} 的快照数据")
 
         day_data["net_value_change"] = day_data["net_value"].diff().abs()
         max_row = day_data.loc[day_data["net_value_change"].idxmax()]
 
-        event_time = max_row["timestamp"]
-        prior_rows = df[df["timestamp"] < event_time]
+        event_index = max_row.name
+        event_time = timestamps.loc[event_index]
+        prior_rows = df[timestamps < event_time]
         if prior_rows.empty:
             raise ValueError(f"{event_time} 之前没有净值数据，无法处理{action_label}")
         net_value_before = prior_rows["net_value"].iloc[-1]
@@ -300,9 +315,9 @@ class BaseExchangeAccount(ABC):
         if not is_valid_calculation_value(new_net_value):
             raise ValueError(f"{action_label}后的净值无效")
 
-        df.loc[df["timestamp"] == event_time, "total_unit"] = new_total_unit
-        df.loc[df["timestamp"] == event_time, "net_value"] = new_net_value
-        df.loc[df["timestamp"] == event_time, csv_column] = amount
+        df.loc[event_index, "total_unit"] = new_total_unit
+        df.loc[event_index, "net_value"] = new_net_value
+        df.loc[event_index, csv_column] = amount
         df.to_csv(self.minute_snapshot_file, index=False)
 
         RUNTIME_LOGGER.info(
@@ -328,20 +343,22 @@ class BaseExchangeAccount(ABC):
             raise
 
         try:
-            df = pd.read_csv(self.minute_snapshot_file, parse_dates=["timestamp"])
+            df = pd.read_csv(self.minute_snapshot_file)
         except FileNotFoundError:
             raise ValueError(f"找不到 {self.name} 的快照文件，无法处理申购")
 
+        timestamps = parse_snapshot_timestamps(df, self.minute_snapshot_file)
         subscription_date = pd.to_datetime(subscription_date).date()
-        day_data = df[df["timestamp"].dt.date == subscription_date].copy()
+        day_data = df[timestamps.dt.date == subscription_date].copy()
         if day_data.empty:
             raise ValueError(f"找不到 {subscription_date} 的快照数据")
 
         day_data["net_value_change"] = day_data["net_value"].diff().abs()
         max_row = day_data.loc[day_data["net_value_change"].idxmax()]
 
-        subscription_time = max_row["timestamp"]
-        prior_rows = df[df["timestamp"] < subscription_time]
+        subscription_index = max_row.name
+        subscription_time = timestamps.loc[subscription_index]
+        prior_rows = df[timestamps < subscription_time]
         if prior_rows.empty:
             raise ValueError(f"{subscription_time} 之前没有净值数据，无法处理申购")
         net_value_before = prior_rows["net_value"].iloc[-1]
@@ -358,9 +375,9 @@ class BaseExchangeAccount(ABC):
         if not is_valid_calculation_value(new_net_value):
             raise ValueError("申购后的净值无效")
 
-        df.loc[df["timestamp"] == subscription_time, "total_unit"] = new_total_unit
-        df.loc[df["timestamp"] == subscription_time, "net_value"] = new_net_value
-        df.loc[df["timestamp"] == subscription_time, "subscription_amount"] = subscription_amount
+        df.loc[subscription_index, "total_unit"] = new_total_unit
+        df.loc[subscription_index, "net_value"] = new_net_value
+        df.loc[subscription_index, "subscription_amount"] = subscription_amount
         df.to_csv(self.minute_snapshot_file, index=False)
 
         RUNTIME_LOGGER.info(
