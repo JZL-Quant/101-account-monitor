@@ -725,7 +725,7 @@ def nav_prom_target(account):
         f"(\n  {series} > 1e-7\n)\n"
         "and\n"
         f"(\n  {series}\n"
-        "  >\n"
+        "  >=\n"
         "  quantile_over_time(\n"
         "    0.01,\n"
         f"    {series}[$__range] @ end()\n"
@@ -733,14 +733,14 @@ def nav_prom_target(account):
         ")\n"
         "and\n"
         f"(\n  {series}\n"
-        "  <\n"
+        "  <=\n"
         "  quantile_over_time(\n"
         "    0.99,\n"
         f"    {series}[$__range] @ end()\n"
         "  )\n"
         ")"
     )
-    target["editorMode"] = "builder"
+    target["editorMode"] = "code"
     return target
 
 
