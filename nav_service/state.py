@@ -298,8 +298,8 @@ def adjust_principal(account_name, amount):
     amount = float(amount)
     current = float(account_infos[account_name].get("principal", account_infos[account_name]["initial_unit"]))
     new_value = current + amount
-    if new_value <= 0:
-        raise ValueError("赎回后的本金必须大于 0")
+    if new_value < 0:
+        raise ValueError("赎回后的本金不能小于 0")
 
     with open(CONFIG_PATH, "r", encoding="utf-8") as file:
         content = file.read()

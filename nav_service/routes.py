@@ -113,8 +113,8 @@ def register_routes(app, templates):
         try:
             account_info = state.account_infos[req.account_name]
             current_principal = float(account_info.get("principal", account_info["initial_unit"]))
-            if req.withdrawal_amount >= current_principal:
-                raise ValueError("赎回后的本金必须大于 0")
+            if req.withdrawal_amount > current_principal:
+                raise ValueError("赎回金额不能超过当前本金")
             await state.accounts[req.account_name].handle_withdrawal_pro(
                 req.withdrawal_date, req.withdrawal_amount
             )
@@ -134,8 +134,8 @@ def register_routes(app, templates):
         try:
             account_info = state.account_infos[account_name]
             current_principal = float(account_info.get("principal", account_info["initial_unit"]))
-            if withdrawal_amount >= current_principal:
-                raise ValueError("赎回后的本金必须大于 0")
+            if withdrawal_amount > current_principal:
+                raise ValueError("赎回金额不能超过当前本金")
             await state.accounts[account_name].handle_withdrawal_pro(
                 withdrawal_date, withdrawal_amount
             )

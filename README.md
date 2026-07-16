@@ -291,7 +291,7 @@ minute_snapshots/<exchange>_<account>_<ccy>_minute_snapshot.csv
 | 分红 | 减少 | 不变 | `dividend_amount` | 加回累计分红；同时作为“分红后年化收益”的起算事件 |
 | 扣息 | 减少 | 不变 | `interest_deduction` | 当前 `cumulative_return` 公式未单独加回累计扣息 |
 
-赎回时还会校验 `withdrawal_amount < principal`，以保证赎回后的配置本金大于 0；所有事件处理后也要求总份额大于最小有效阈值。`initial_unit` 保持初始值不变，`principal` 才是随申购、赎回调整的当前本金。
+赎回时会校验 `withdrawal_amount <= principal`，允许全部赎回后配置本金归零，但不允许本金变为负数；所有事件处理后仍要求总份额大于最小有效阈值。`initial_unit` 保持初始值不变，`principal` 才是随申购、赎回调整的当前本金。
 
 > 注意：事件时间不是用户精确输入的时分秒，而是根据所选日期内最大净值跳变推断。因此应确认该日期存在事件前后的分钟快照，且当天没有更大的无关净值异常。若同一天有多次资金变动，建议处理后检查 CSV 中识别出的事件行、份额和净值是否符合预期。
 
