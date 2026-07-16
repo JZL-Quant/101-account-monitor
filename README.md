@@ -189,6 +189,8 @@ chmod +x start_account_monitor.sh
 minute_snapshots/<exchange>_<account>_<ccy>_minute_snapshot.csv
 ```
 
+快照固定使用 8 列：`timestamp`、`actual_equity`、`total_unit`、`net_value`、`dividend_amount`、`interest_deduction`、`withdraw_amount`、`subscription_amount`。如果旧文件仍为 6 列，或已经混入新版 8 列数据行，应先停止监控服务并执行 `python -m ops.migrate_snapshot_csv_to_8_columns`；详细迁移规则见 [运维工具说明](ops/README.md#分钟快照升级为-8-列)。
+
 账户币种由 `ccy` 决定：`BTC` 账户返回 BTC 计价权益，其他账户默认保留 USDT 计价权益。报告分组会根据交易所、账户名前缀和币种动态生成，例如 `Binance_Loro_USDT`。
 
 ### Prometheus 指标及计算口径

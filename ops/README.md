@@ -12,6 +12,7 @@ source .venv/bin/activate
 | 模块 | 用途 | 默认是否修改外部状态 |
 | --- | --- | --- |
 | `ops.bootstrap_minute_snapshots` | 从旧监控目录迁移分钟快照 | 是，会复制 CSV |
+| `ops.migrate_snapshot_csv_to_8_columns` | 将旧版或混合格式的分钟 CSV 一次性迁移为 8 列 | 是，会原子替换 CSV |
 | `ops.sync_grafana_dashboards` | 创建或修复 Grafana Panel | 是；`--dry-run` 除外 |
 | `ops.backfill_prometheus` | 检测 CSV/Prometheus 缺口并生成回灌 blocks | 默认否 |
 | `ops/backfill_prometheus.sh` | 一键停服、备份、导入并重启 Prometheus | 是，高风险操作 |
@@ -27,6 +28,37 @@ python -m ops.bootstrap_minute_snapshots
 工具会从 `config/settings.py` 的 `LEGACY_SNAPSHOT_DIRS` 查找旧 CSV。目标文件已有不少于来源文件的行数时会跳过，不会覆盖更新的数据。
 
 如需支持新的旧目录，应先修改 `LEGACY_SNAPSHOT_DIRS`，并在复制前备份现有 `minute_snapshots/`。
+
+## 分钟快照升级为 8 列
+
+当前业务代码只使用以下固定 8 列：
+
+```text
+timestamp,actual_equity,total_unit,net_value,dividend_amount,interest_deduction,withdraw_amount,subscription_amount
+```
+
+旧快照可能只有 6 列，或者已经出现“6 列表头、6/8 列数据行混合”的情况。此时 `pandas.read_csv()` 会报 `Expected 6 fields ... saw 8`，导致申购、赎回、分红或扣息无法读取整份快照。
+
+先停止账户监控服务，避免迁移期间继续追加记录，然后在项目根目录执行：
+
+```bash
+python -m ops.migrate_snapshot_csv_to_8_columns
+```
+
+默认迁移 `minute_snapshots/` 下的全部 CSV。也可以只迁移指定文件：
+
+```bash
+python -m ops.migrate_snapshot_csv_to_8_columns minute_snapshots/example.csv
+```
+
+迁移规则：
+
+- 旧 6 列行保留原有数据，在 `dividend_amount` 后补空的 `interest_deduction` 和 `withdraw_amount`，原 `subscription_amount` 移到第 8 列。
+- 已经是 8 列的行保持不变。
+- 遇到其他列数或未知表头时立即失败，不覆盖原文件。
+- 每个文件先写入同目录临时文件，全部成功后再原子替换原文件。
+
+迁移成功并确认所有文件均为 8 列后，再启动账户监控服务。业务读取逻辑不会继续兼容 6 列格式。
 
 ## Grafana Panel 管理
 
