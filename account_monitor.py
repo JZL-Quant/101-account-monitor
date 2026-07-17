@@ -61,7 +61,24 @@ def read_minute_snapshot_file(minute_snapshot_file):
     if not os.path.exists(minute_snapshot_file):
         RUNTIME_LOGGER.warning("minute snapshot file %s does not exist", minute_snapshot_file)
         return None
-    return pd.read_csv(minute_snapshot_file, parse_dates=['timestamp'])
+    df = pd.read_csv(minute_snapshot_file)
+    if "timestamp" not in df.columns:
+        raise ValueError(f"快照文件 {minute_snapshot_file} 缺少 timestamp 列")
+
+    # 历史文件中同时存在 `2026/4/28 9:26` 和
+    # `2026-07-16 08:43:21` 等格式。parse_dates 在 pandas 2.x 会按首行
+    # 推断单一格式，遇到混合格式时可能把整列保留为 object/string。
+    timestamps = pd.to_datetime(df["timestamp"], format="mixed", errors="coerce")
+    invalid_count = int(timestamps.isna().sum())
+    if invalid_count:
+        invalid_rows = (timestamps[timestamps.isna()].index + 2).tolist()
+        row_preview = ", ".join(map(str, invalid_rows[:5]))
+        raise ValueError(
+            f"快照文件 {minute_snapshot_file} 中有 {invalid_count} 行 timestamp 无法解析"
+            f"（CSV 行号示例: {row_preview}）"
+        )
+    df["timestamp"] = timestamps
+    return df
 
 async def calculate_simple_annualized_return(data, period_days):
     """按区间首尾净值计算简单年化收益率，返回小数形式。"""

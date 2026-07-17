@@ -36,7 +36,10 @@ def read_minute_snapshot_file(minute_snapshot_file):
     if not os.path.exists(minute_snapshot_file):
         RUNTIME_LOGGER.warning("minute snapshot file %s does not exist", minute_snapshot_file)
         return None
-    return pd.read_csv(minute_snapshot_file, parse_dates=["timestamp"])
+    df = pd.read_csv(minute_snapshot_file)
+    timestamps = parse_snapshot_timestamps(df, minute_snapshot_file)
+    df["timestamp"] = timestamps
+    return df
 
 
 def parse_snapshot_timestamps(df, snapshot_file):
@@ -181,7 +184,9 @@ class BaseExchangeAccount(ABC):
         net_value = actual_equity / total_unit
         if not is_valid_calculation_value(net_value):
             raise ValueError(f"{self.name} net_value 不是有限数")
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # 快照属于调度触发的分钟，而不是 API 请求完成的具体秒数。
+        # 统一落在分钟边界，避免请求耗时让时间戳出现 :21、:37 等偏移。
+        timestamp = datetime.now().replace(second=0, microsecond=0).strftime("%Y-%m-%d %H:%M:%S")
         os.makedirs(os.path.dirname(self.minute_snapshot_file), exist_ok=True)
 
         file_exists = os.path.exists(self.minute_snapshot_file) and os.path.getsize(self.minute_snapshot_file) > 0
