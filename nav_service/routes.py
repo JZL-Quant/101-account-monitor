@@ -146,8 +146,8 @@ def register_routes(app, templates):
         return state.account_response(account_name, "赎回", withdrawal_amount, withdrawal_date)
 
     @app.get("/")
-    async def read_root():
-        return Response(generate_latest(collector_registry), media_type=CONTENT_TYPE_LATEST)
+    async def read_root(request: Request):
+        return templates.TemplateResponse("home.html", {"request": request})
 
     @app.get("/accounts", response_class=HTMLResponse)
     async def accounts_page(request: Request):

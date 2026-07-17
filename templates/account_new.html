@@ -99,6 +99,11 @@
         const client = document.getElementById("client");
         const productName = document.getElementById("product_name");
 
+        function selectedLabel(id) {
+            const select = document.getElementById(id);
+            return select.options[select.selectedIndex].textContent.trim();
+        }
+
         function showMessage(message, isError = false) {
             responseMsg.textContent = message;
             responseMsg.className = isError
@@ -111,6 +116,24 @@
             productName.value = [productPrefix.value, productSequence.value]
                 .map((part) => part.trim())
                 .join("_");
+
+            const confirmation = [
+                "请确认新账户信息：",
+                "",
+                `产品名称：${productName.value}`,
+                `客户标识：${client.value.trim()}`,
+                `委托数量：${document.getElementById("initial_unit").value} ${selectedLabel("ccy")}`,
+                `交易所：${selectedLabel("exchange")}`,
+                `账户类型：${selectedLabel("account_type")}`,
+                `利率：${document.getElementById("interest_rate").value || "自动推断"}`,
+                "",
+                "确认提交并创建账户吗？"
+            ].join("\n");
+            if (!window.confirm(confirmation)) {
+                showMessage("已取消提交。");
+                return;
+            }
+
             submitButton.disabled = true;
             submitButton.textContent = "正在保存...";
             showMessage("正在提交，请稍候...");
