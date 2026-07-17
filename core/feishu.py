@@ -18,11 +18,31 @@ class FeishuClient:
         self.webhook_urls = list(dict.fromkeys(url for url in (webhook_urls or []) if url))
         self.app_id = app_id
         self.app_secret = app_secret
+        self._max_concurrency = max_concurrency
+        self._loop = None
+        self._session = None
+        self._session_lock = None
+        self._send_semaphore = None
+
+    async def _ensure_loop_resources(self):
+        """Create asyncio primitives in the loop that will actually use them."""
+        loop = asyncio.get_running_loop()
+        if self._loop is loop:
+            return
+
+        old_session = self._session
+        self._loop = loop
         self._session = None
         self._session_lock = asyncio.Lock()
-        self._send_semaphore = asyncio.Semaphore(max_concurrency)
+        self._send_semaphore = asyncio.Semaphore(self._max_concurrency)
+
+        # A scheduler/app lifecycle may replace its event loop while retaining
+        # this module-level client. Do not reuse loop-bound aiohttp resources.
+        if old_session is not None and not old_session.closed:
+            await old_session.close()
 
     async def _get_session(self):
+        await self._ensure_loop_resources()
         if self._session is not None and not self._session.closed:
             return self._session
         async with self._session_lock:
@@ -33,7 +53,10 @@ class FeishuClient:
     async def close(self):
         if self._session is not None and not self._session.closed:
             await self._session.close()
+        self._loop = None
         self._session = None
+        self._session_lock = None
+        self._send_semaphore = None
 
     @classmethod
     def from_env(cls):
@@ -46,6 +69,7 @@ class FeishuClient:
     async def send_payload(self, json_data: dict, retries: int = 5):
         headers = {"Content-Type": "application/json"}
 
+        await self._ensure_loop_resources()
         async with self._send_semaphore:
             session = await self._get_session()
             for url in self.webhook_urls:
