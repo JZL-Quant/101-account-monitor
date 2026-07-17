@@ -11,7 +11,11 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 
-from account_monitor import register_monitor_account, start_monitor_scheduler
+from account_monitor import (
+    register_monitor_account,
+    start_monitor_scheduler,
+    unregister_monitor_account,
+)
 from config.settings import (
     DEFAULT_RUNTIME_LOG_LEVEL,
     MONITOR_NAV_HOST,
@@ -27,7 +31,11 @@ from nav_service.routes import update_loop
 BASE_DIR = str(PROJECT_ROOT)
 os.chdir(BASE_DIR)
 
-state.initialize(BASE_DIR, on_account_added=register_monitor_account)
+state.initialize(
+    BASE_DIR,
+    on_account_added=register_monitor_account,
+    on_account_archived=unregister_monitor_account,
+)
 
 
 @asynccontextmanager

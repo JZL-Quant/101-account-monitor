@@ -122,6 +122,7 @@ GRAFANA_PASSWORD = ""
 | `config/local_secrets.example.py` | 是 | 不含真实值的配置模板 |
 | `config/local_secrets.py` | 否 | 飞书和 Grafana 等真实凭证 |
 | `accounts_config.yaml` | 否 | Binance、Gate 等各账户的 API Key 与 Secret |
+| `archived_accounts/accounts_config.yaml` | 否 | 已归档账户配置、归档时间及其 CSV 路径 |
 
 账户密钥继续放在 `accounts_config.yaml`，因为它还包含账户份额、币种和客户等结构化信息；不与通用服务凭证混放。
 

@@ -2,6 +2,8 @@ import asyncio
 import logging
 import os
 import re
+import shutil
+from datetime import datetime, timezone
 
 import pandas as pd
 import yaml
@@ -16,13 +18,16 @@ account_infos = {}
 accounts = {}
 account_update_tasks = {}
 _on_account_added = None
+_on_account_archived = None
+archived_account_infos = {}
 LOGGER = logging.getLogger(__name__)
 
 
-def initialize(base_dir, on_account_added=None):
+def initialize(base_dir, on_account_added=None, on_account_archived=None):
     global BASE_DIR, CONFIG_PATH, account_registry, account_infos, accounts
-    global _on_account_added
+    global _on_account_added, _on_account_archived, archived_account_infos
     _on_account_added = on_account_added
+    _on_account_archived = on_account_archived
 
     BASE_DIR = base_dir
     CONFIG_PATH = os.path.join(BASE_DIR, "accounts_config.yaml")
@@ -30,6 +35,24 @@ def initialize(base_dir, on_account_added=None):
     account_registry = get_account_registry(CONFIG_PATH)
     account_infos = account_registry.local_accounts()
     accounts = account_registry.exchange_accounts()
+    archived_account_infos = load_archived_accounts()
+
+
+def archive_dir():
+    return os.path.join(BASE_DIR, "archived_accounts")
+
+
+def archive_config_path():
+    return os.path.join(archive_dir(), "accounts_config.yaml")
+
+
+def load_archived_accounts():
+    path = archive_config_path()
+    if not os.path.isfile(path):
+        return {}
+    with open(path, "r", encoding="utf-8") as file:
+        data = yaml.safe_load(file) or {}
+    return data if isinstance(data, dict) else {}
 
 
 def account_source(account_info):
@@ -150,6 +173,22 @@ def build_account_table_groups():
                 "initial_unit": account_info.get("initial_unit", ""),
                 "principal": account_info.get("principal", account_info.get("initial_unit", "")),
                 "interest_rate": account_info.get("interest_rate", 0),
+                "archived": False,
+            }
+        )
+    for account_name, account_info in sorted(archived_account_infos.items()):
+        exchange = str(account_info.get("exchange_label") or account_info.get("exchange", "Binance"))
+        groups.setdefault(exchange, []).append(
+            {
+                "name": account_name,
+                "client": account_info.get("client", ""),
+                "ccy": account_info.get("ccy", "USDT"),
+                "account_type": account_info.get("account_type", "account"),
+                "initial_unit": account_info.get("initial_unit", ""),
+                "principal": account_info.get("principal", account_info.get("initial_unit", "")),
+                "interest_rate": account_info.get("interest_rate", 0),
+                "archived": True,
+                "archived_at": account_info.get("archived_at", ""),
             }
         )
     return [
@@ -210,6 +249,15 @@ def normalize_client(value):
 
 def product_prefix(product_name):
     return product_name.split("_", 1)[0] if "_" in product_name else product_name
+
+
+def validate_new_account_name(product_name):
+    product_name = (product_name or "").strip()
+    if product_name in account_infos:
+        raise ValueError(f"账户 {product_name} 已存在")
+    if product_name in archived_account_infos:
+        raise ValueError(f"账户 {product_name} 已存在并已归档，不允许再次创建")
+    return product_name
 
 
 def infer_interest_rate(product_name):
@@ -285,8 +333,7 @@ def append_account_config(
     secret_key = secret_key.strip()
     if not re.fullmatch(r"[A-Za-z0-9_]+", product_name):
         raise ValueError("产品名称只能包含英文字母、数字和下划线")
-    if product_name in account_infos:
-        raise ValueError(f"账户 {product_name} 已存在")
+    validate_new_account_name(product_name)
     if not api_key or not secret_key:
         raise ValueError("API Key 和 Secret Key 不能为空")
 
@@ -331,6 +378,70 @@ def append_account_config(
 
     start_account_update_task(product_name)
     return account_infos[product_name]
+
+
+async def archive_account(account_name):
+    """停止账户、保存归档记录、移动 CSV，并从活动配置中移除。"""
+    global account_infos, archived_account_infos
+    if account_name in archived_account_infos:
+        raise ValueError(f"账户 {account_name} 已归档")
+    account_info = account_infos.get(account_name)
+    if account_info is None:
+        raise ValueError(f"账户 {account_name} 不存在")
+
+    task = account_update_tasks.pop(account_name, None)
+    if task is not None:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    account = accounts.pop(account_name, None)
+    if account is not None:
+        await account.close()
+
+    with open(CONFIG_PATH, "r", encoding="utf-8") as file:
+        active_content = file.read()
+    account_pattern = re.compile(
+        rf"(?ms)^(?P<header>{re.escape(account_name)}:[ \t]*\r?\n)"
+        rf"(?P<body>(?:^[ \t]+[^\r\n]*(?:\r?\n|$))*)"
+    )
+    match = account_pattern.search(active_content)
+    if not match:
+        raise ValueError(f"配置文件中找不到账户 {account_name}")
+    raw_entry = yaml.safe_load(match.group(0)) or {}
+    archived_entry = dict(raw_entry.get(account_name) or {})
+
+    os.makedirs(archive_dir(), exist_ok=True)
+    snapshot_file = account_info["minute_snapshot_file"]
+    archived_snapshot = ""
+    if os.path.isfile(snapshot_file):
+        archived_snapshot = os.path.join(archive_dir(), os.path.basename(snapshot_file))
+        if os.path.exists(archived_snapshot):
+            raise ValueError(f"归档目录中已存在快照 {os.path.basename(archived_snapshot)}")
+        shutil.move(snapshot_file, archived_snapshot)
+
+    archived_entry.update({
+        "archived_at": datetime.now(timezone.utc).isoformat(),
+        "snapshot_file": archived_snapshot,
+        "exchange_label": account_info.get("exchange_label", account_info.get("exchange", "Binance")),
+    })
+    new_archive = dict(archived_account_infos)
+    new_archive[account_name] = archived_entry
+    archive_tmp = archive_config_path() + ".tmp"
+    with open(archive_tmp, "w", encoding="utf-8", newline="\n") as file:
+        yaml.safe_dump(new_archive, file, allow_unicode=True, sort_keys=False)
+    os.replace(archive_tmp, archive_config_path())
+
+    updated_content = active_content[:match.start()] + active_content[match.end():]
+    active_tmp = CONFIG_PATH + ".tmp"
+    with open(active_tmp, "w", encoding="utf-8", newline="\n") as file:
+        file.write(updated_content)
+    os.replace(active_tmp, CONFIG_PATH)
+
+    archived_account_infos = new_archive
+    account_infos = account_registry.reload()
+    if _on_account_archived is not None:
+        _on_account_archived(account_name)
+    return archived_account_infos[account_name]
 
 
 def ensure_principals_in_config():

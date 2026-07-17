@@ -157,7 +157,9 @@ def register_routes(app, templates):
             {
                 "request": request,
                 "account_groups": state.build_account_table_groups(),
-                "account_count": len(state.account_infos),
+                "account_count": len(state.account_infos) + len(state.archived_account_infos),
+                "active_account_count": len(state.account_infos),
+                "archived_account_count": len(state.archived_account_infos),
                 "log_dates": log_dates,
             },
         )
@@ -193,10 +195,14 @@ def register_routes(app, templates):
     @app.get("/accounts/{account_name}/snapshot")
     async def download_account_snapshot(account_name: str):
         account_info = state.account_infos.get(account_name)
+        archived = False
+        if account_info is None:
+            account_info = state.archived_account_infos.get(account_name)
+            archived = account_info is not None
         if account_info is None:
             raise HTTPException(status_code=404, detail="账户不存在")
 
-        snapshot_file = account_info["minute_snapshot_file"]
+        snapshot_file = account_info.get("snapshot_file") if archived else account_info["minute_snapshot_file"]
         if not os.path.isfile(snapshot_file):
             raise HTTPException(status_code=404, detail="该账户的快照 CSV 尚未生成")
 
@@ -205,6 +211,29 @@ def register_routes(app, templates):
             media_type="text/csv; charset=utf-8",
             filename=os.path.basename(snapshot_file),
         )
+
+    @app.post("/accounts/{account_name}/archive")
+    async def archive_account(account_name: str):
+        try:
+            archived = await state.archive_account(account_name)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except Exception as exc:
+            LOGGER.exception("Account archival failed for %s", account_name)
+            raise HTTPException(status_code=500, detail=f"账户归档失败: {exc}")
+
+        grafana_error = ""
+        try:
+            await asyncio.to_thread(sync_dashboards, force_rebuild=True)
+        except Exception as exc:
+            LOGGER.exception("Grafana panel removal failed for %s", account_name)
+            grafana_error = str(exc)
+        return {
+            "message": f"账户 {account_name} 已归档",
+            "account_name": account_name,
+            "archived_at": archived["archived_at"],
+            "grafana_error": grafana_error,
+        }
 
     @app.get("/api/accounts")
     async def list_accounts():
@@ -230,6 +259,7 @@ def register_routes(app, templates):
         secret_key: str = Form(...),
     ):
         try:
+            state.validate_new_account_name(product_name)
             await state.validate_exchange_credentials(
                 exchange,
                 account_type,

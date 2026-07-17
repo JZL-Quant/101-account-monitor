@@ -51,6 +51,11 @@ def register_monitor_account(account_name: str, account_info: dict):
     account_metrics.add_account(account_name, account_info)
     accounts[account_name] = account_info
 
+def unregister_monitor_account(account_name: str):
+    """将归档账户移出报告、调度集合和 Prometheus 注册表。"""
+    accounts.pop(account_name, None)
+    account_metrics.remove_account(account_name)
+
 def read_minute_snapshot_file(minute_snapshot_file):
     """读取账户分钟快照 CSV，并把 timestamp 解析为时间列。"""
     if not os.path.exists(minute_snapshot_file):

@@ -77,6 +77,12 @@ class AccountMetricsStore:
             create_account_metrics({account_name: account_info}, self._registry)
         )
 
+    def remove_account(self, account_name: str):
+        """注销账户的全部指标，使归档账户立即从 Prometheus 输出中消失。"""
+        metrics = self._metrics.pop(account_name, {})
+        for metric in metrics.values():
+            self._registry.unregister(metric)
+
     def set(self, account_name: str, metric_key: str, value):
         """写入单个账户指标。"""
         try:

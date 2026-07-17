@@ -34,6 +34,13 @@
         }
         a.button.secondary { background: #4b5563; }
         a.button.download { background: #059669; padding: 7px 11px; }
+        button.archive {
+            padding: 7px 11px; border: 0; border-radius: 7px; background: #dc2626;
+            color: #fff; font-weight: 600; cursor: pointer;
+        }
+        .archived-row { background: #f3f4f6; color: #6b7280; }
+        .archived-status { color: #6b7280; font-weight: 700; }
+        .actions { display: flex; align-items: center; gap: 8px; }
         main { padding: 28px 20px 48px; }
         .summary {
             margin-bottom: 20px;
@@ -144,7 +151,7 @@
     </header>
 
     <main>
-        <div class="summary">当前共 <strong>{{ account_count }}</strong> 个账户，按交易所分组展示。API Key 和 Secret 不会在本页面显示。</div>
+        <div class="summary">共 <strong>{{ account_count }}</strong> 个账户（监控中 {{ active_account_count }}，已归档 {{ archived_account_count }}），按交易所分组展示。API Key 和 Secret 不会在本页面显示。</div>
 
         <form class="log-download" action="/accounts/logs/download" method="get">
             <span>下载运行日志：</span>
@@ -176,11 +183,12 @@
                                 <th>当前本金</th>
                                 <th>利率</th>
                                 <th>快照</th>
+                                <th>状态 / 操作</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for account in group.accounts %}
-                            <tr>
+                            <tr {% if account.archived %}class="archived-row"{% endif %}>
                                 <td class="account-name">{{ account.name }}</td>
                                 <td>{{ account.client or "-" }}</td>
                                 <td><span class="badge">{{ account.ccy }}</span></td>
@@ -190,6 +198,16 @@
                                 <td>{{ account.interest_rate }}</td>
                                 <td>
                                     <a class="button download" href="/accounts/{{ account.name }}/snapshot">下载 CSV</a>
+                                </td>
+                                <td>
+                                    {% if account.archived %}
+                                    <span class="archived-status">已归档</span>
+                                    {% else %}
+                                    <form action="/accounts/{{ account.name }}/archive" method="post"
+                                          onsubmit="return archiveAccount(event, '{{ account.name }}')">
+                                        <button class="archive" type="submit">归档</button>
+                                    </form>
+                                    {% endif %}
                                 </td>
                             </tr>
                             {% endfor %}
@@ -202,5 +220,28 @@
             <div class="empty">当前没有已配置账户。</div>
         {% endif %}
     </main>
+    <script>
+        async function archiveAccount(event, accountName) {
+            event.preventDefault();
+            if (!confirm(`确认归档账户 ${accountName}？归档后将停止监控，且不能再次创建同名账户。`)) return false;
+            const button = event.currentTarget.querySelector("button");
+            button.disabled = true;
+            button.textContent = "归档中…";
+            try {
+                const response = await fetch(event.currentTarget.action, {method: "POST"});
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || "归档失败");
+                if (result.grafana_error) {
+                    alert("账户已归档，但 Grafana 面板删除失败，请检查服务日志。");
+                }
+                location.reload();
+            } catch (error) {
+                alert(error.message);
+                button.disabled = false;
+                button.textContent = "归档";
+            }
+            return false;
+        }
+    </script>
 </body>
 </html>

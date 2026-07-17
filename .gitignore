@@ -38,6 +38,7 @@ nv_logs/
 
 # Monitor runtime data
 minute_snapshots/
+archived_accounts/
 Binance_monitor_merged_test_llj/minute_snapshots/*
 !Binance_monitor_merged_test_llj/minute_snapshots/.gitignore
 *_minute_snapshot.csv
