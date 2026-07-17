@@ -3,6 +3,7 @@ import logging
 import os
 import re
 
+import pandas as pd
 import yaml
 
 from core.account_registry import EXCHANGE_ACCOUNT_BY_ID, get_account_registry
@@ -56,9 +57,82 @@ def build_account_options():
             "ccy": account_info.get("ccy", "USDT"),
             "exchange": account_info.get("exchange", "Binance"),
             "client": account_info.get("client", ""),
+            "principal": account_info.get("principal", account_info.get("initial_unit", 0)),
         }
         for account_name, account_info in account_infos.items()
     ]
+
+
+def find_equity_changes(account_name, event_date, threshold):
+    """Return actual-equity changes on a date whose absolute size reaches threshold."""
+    if account_name not in account_infos:
+        raise ValueError(f"账户 {account_name} 不存在")
+    threshold = float(threshold)
+    if threshold <= 0:
+        raise ValueError("最小资金变动金额必须大于 0")
+
+    snapshot_file = account_infos[account_name]["minute_snapshot_file"]
+    if not os.path.isfile(snapshot_file):
+        raise ValueError(f"找不到账户 {account_name} 的分钟快照")
+
+    frame = pd.read_csv(snapshot_file)
+    required = {"timestamp", "actual_equity"}
+    if not required.issubset(frame.columns):
+        raise ValueError("分钟快照缺少 timestamp 或 actual_equity 列")
+
+    timestamps = pd.to_datetime(frame["timestamp"], format="mixed", errors="coerce")
+    equity = pd.to_numeric(frame["actual_equity"], errors="coerce")
+    changes = equity.diff()
+    amount_columns = {
+        "subscription_amount": "subscription_amount",
+        "dividend_amount": "dividend_amount",
+        "interest_deduction": "interest_deduction",
+        "withdrawal_amount": "withdraw_amount",
+    }
+    recorded = {}
+    for result_name, column_name in amount_columns.items():
+        recorded[result_name] = (
+            pd.to_numeric(frame[column_name], errors="coerce").fillna(0.0)
+            if column_name in frame.columns
+            else pd.Series(0.0, index=frame.index)
+        )
+    target_date = pd.to_datetime(event_date).date()
+    candidate_mask = (
+        timestamps.notna()
+        & (timestamps.dt.date == target_date)
+        & changes.notna()
+        & (changes.abs() >= threshold)
+    )
+
+    results = []
+    ignore_tolerance = 0.01 if account_infos[account_name].get("ccy", "USDT") == "USDT" else 1e-8
+    for index in frame.index[candidate_mask]:
+        change = float(changes.at[index])
+        subscription = float(recorded["subscription_amount"].at[index])
+        dividend = float(recorded["dividend_amount"].at[index])
+        interest = float(recorded["interest_deduction"].at[index])
+        withdrawal = float(recorded["withdrawal_amount"].at[index])
+        ignored_amount = (
+            change - subscription
+            if change > 0
+            else abs(change) - dividend - interest - withdrawal
+        )
+        if abs(ignored_amount) <= ignore_tolerance:
+            continue
+        results.append({
+            "timestamp": str(frame.at[index, "timestamp"]),
+            "previous_timestamp": str(frame.at[index - 1, "timestamp"]),
+            "previous_equity": float(equity.at[index - 1]),
+            "actual_equity": float(equity.at[index]),
+            "change": change,
+            "direction": "in" if change > 0 else "out",
+            "subscription_amount": subscription,
+            "dividend_amount": dividend,
+            "interest_deduction": interest,
+            "withdrawal_amount": withdrawal,
+            "ignored_amount": ignored_amount,
+        })
+    return results
 
 
 def build_account_table_groups():

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SubscriptionRequest(BaseModel):
@@ -23,3 +23,15 @@ class WithdrawalRequest(BaseModel):
     account_name: str
     withdrawal_date: str
     withdrawal_amount: float
+
+
+class FundChangeInput(BaseModel):
+    event_timestamp: str
+    subscription_amount: float = Field(default=0, ge=0)
+    dividend_amount: float = Field(default=0, ge=0)
+    interest_deduction: float = Field(default=0, ge=0)
+    withdrawal_amount: float = Field(default=0, ge=0)
+
+
+class FundChangesRequest(BaseModel):
+    changes: list[FundChangeInput]

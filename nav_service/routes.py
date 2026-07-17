@@ -18,6 +18,7 @@ from ops.sync_grafana_dashboards import sync_dashboards
 from . import state
 from .schemas import (
     DividendRequest,
+    FundChangesRequest,
     InterestDeductionRequest,
     SubscriptionRequest,
     WithdrawalRequest,
@@ -295,6 +296,44 @@ def register_routes(app, templates):
     @app.get("/operations", response_class=HTMLResponse)
     async def read_operations(request: Request):
         return templates.TemplateResponse("index.html", {"request": request, "accounts": state.build_account_options()})
+
+    @app.get("/api/accounts/{account_name}/equity-changes")
+    async def equity_changes(account_name: str, date: str, threshold: float):
+        try:
+            changes = await asyncio.to_thread(
+                state.find_equity_changes,
+                account_name,
+                date,
+                threshold,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return {"account_name": account_name, "date": date, "changes": changes}
+
+    @app.post("/api/accounts/{account_name}/equity-changes")
+    async def process_equity_changes(account_name: str, req: FundChangesRequest):
+        if account_name not in state.accounts:
+            raise HTTPException(status_code=404, detail="账户不存在")
+        changes = [change.model_dump() for change in req.changes]
+        subscription_total = sum(change["subscription_amount"] for change in changes)
+        withdrawal_total = sum(change["withdrawal_amount"] for change in changes)
+        account_info = state.account_infos[account_name]
+        current_principal = float(account_info.get("principal", account_info["initial_unit"]))
+        remaining_principal = current_principal + subscription_total - withdrawal_total
+        if remaining_principal < 0:
+            raise HTTPException(status_code=400, detail="处理后的本金不能小于 0")
+        try:
+            results = await state.accounts[account_name].handle_fund_changes(changes)
+            principal_delta = subscription_total - withdrawal_total
+            if principal_delta:
+                remaining_principal = state.adjust_principal(account_name, principal_delta)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"资金变动保存失败: {exc}")
+        return {
+            "message": f"成功保存 {len(results)} 个资金变动时刻",
+            "results": results,
+            "remaining_principal": remaining_principal,
+        }
 
     @app.get("/metrics")
     async def metrics():

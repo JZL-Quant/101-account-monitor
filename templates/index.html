@@ -29,8 +29,8 @@
 
     <!-- 主体内容 -->
     <main class="flex-grow flex items-center justify-center p-6">
-        <div class="bg-white rounded-xl shadow-lg p-8 w-full max-w-md">
-            <h2 class="text-3xl font-bold mb-6 text-center text-blue-600">资金操作</h2>
+        <div class="bg-white rounded-xl shadow-lg p-8 w-full max-w-4xl">
+            <h2 class="text-3xl font-bold mb-6 text-center text-blue-600">查找大额资金变动</h2>
 
             <form id="actionForm" class="space-y-6">
                 <!-- 账户选择 -->
@@ -41,7 +41,8 @@
                             class="block appearance-none w-full bg-gray-50 border border-gray-300 hover:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 rounded-lg px-4 py-2 pr-8 shadow-sm transition duration-300 ease-in-out cursor-pointer"
                             required>
                             {% for account in accounts %}
-                            <option value="{{ account.name }}">{{ account.label }}</option>
+                            <option value="{{ account.name }}"
+                                data-ccy="{{ account.ccy }}">{{ account.label }}</option>
                             {% endfor %}
                         </select>
                         <div
@@ -62,37 +63,37 @@
                         required />
                 </div>
 
-                <!-- 金额输入 -->
+                <!-- 阈值输入 -->
                 <div>
-                    <label for="action_amount" class="block text-sm font-semibold text-gray-700 mb-2">金额</label>
-                    <input type="number" step="0.01" id="action_amount" name="action_amount"
+                    <label for="change_threshold" class="block text-sm font-semibold text-gray-700 mb-2">最小资金变动金额</label>
+                    <div class="flex items-center space-x-3">
+                    <input type="number" step="any" min="0" id="change_threshold" name="change_threshold" value="100"
                         class="block w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
                         required />
+                    <span id="threshold_currency" class="font-semibold text-gray-600">USDT</span>
+                    </div>
+                    <p class="mt-2 text-xs leading-relaxed text-gray-500">
+                        建议略低于实际变动金额，避免漏查。
+                    </p>
                 </div>
 
-                <div>
-                    <label for="outflow_type" class="block text-sm font-semibold text-gray-700 mb-2">资金转出类型</label>
-                    <select id="outflow_type" class="block w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-2">
-                        <option value="dividend">分红</option>
-                        <option value="interest_deduction">扣息</option>
-                        <option value="withdrawal">赎回</option>
-                    </select>
-                </div>
-
-                <div class="flex space-x-6 mt-6">
-                    <button type="button" id="btn_subscribe"
-                        class="flex-1 bg-gradient-to-r from-blue-500 to-blue-300 hover:from-blue-600 hover:to-blue-400 text-white font-semibold py-3 rounded-lg shadow-md transform transition duration-300 hover:-translate-y-1 hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-blue-300">
-                        申购
-                    </button>
-                    <button type="button" id="btn_dividend"
+                <div class="mt-6">
+                    <button type="submit" id="btn_query"
                         class="flex-1 bg-gradient-to-r from-green-500 to-green-300 hover:from-green-600 hover:to-green-400 text-white font-semibold py-3 rounded-lg shadow-md transform transition duration-300 hover:-translate-y-1 hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-green-300">
-                        资金转出
+                        查询
                     </button>
                 </div>
             </form>
 
             <!-- 响应提示 -->
             <div id="responseMsg" class="mt-4 text-green-600 font-medium"></div>
+            <div id="results" class="mt-6 hidden">
+                <div id="result_cards" class="space-y-4"></div>
+                <button type="button" id="btn_save"
+                    class="mt-6 w-full bg-gradient-to-r from-blue-600 to-blue-400 hover:from-blue-700 hover:to-blue-500 text-white font-semibold py-3 rounded-lg shadow-md focus:outline-none focus:ring-4 focus:ring-blue-300">
+                    保存
+                </button>
+            </div>
             <div class="mt-6 text-center">
                 <a href="/accounts/new" class="text-sm font-semibold text-blue-600 hover:text-blue-800">新增账户</a>
             </div>
@@ -109,65 +110,204 @@
                 : "mt-4 text-green-600 font-medium";
         }
 
-        document.getElementById("btn_subscribe").addEventListener("click", async () => {
-            const account = document.getElementById("account_name").value;
-            const date = document.getElementById("action_date").value.trim();
-            const amountStr = document.getElementById("action_amount").value.trim();
-            const amount = parseFloat(amountStr);
+        function setButtonBusy(button, busy) {
+            button.disabled = busy;
+            button.classList.toggle("opacity-50", busy);
+            button.classList.toggle("cursor-not-allowed", busy);
+        }
 
-            if (!account || !date || isNaN(amount)) {
-                showMessage("请完整填写账户、日期和金额", true);
+        function selectedAccountInfo() {
+            const select = document.getElementById("account_name");
+            const option = select.options[select.selectedIndex];
+            return {
+                name: option.value,
+                label: option.textContent.trim(),
+                ccy: option.dataset.ccy || "USDT"
+            };
+        }
+
+        function updateThresholdDefault() {
+            const accountInfo = selectedAccountInfo();
+            document.getElementById("change_threshold").value = accountInfo.ccy === "BTC" ? "0.001" : "100";
+            document.getElementById("threshold_currency").textContent = accountInfo.ccy;
+        }
+
+        function formatNumber(value) {
+            return Number(value).toLocaleString("zh-CN", { maximumFractionDigits: 8 });
+        }
+
+        function amountInput(label, field, existingAmount) {
+            const wrapper = document.createElement("label");
+            wrapper.className = "block text-sm text-gray-700";
+            const title = document.createElement("span");
+            title.textContent = `${label}（已记录 ${formatNumber(existingAmount)}）`;
+            const input = document.createElement("input");
+            input.type = "number";
+            input.step = "any";
+            input.min = "0";
+            input.placeholder = "本次追加金额，未填为 0";
+            input.dataset.field = field;
+            input.className = "mt-1 block w-full rounded border border-gray-300 bg-white px-3 py-2";
+            wrapper.append(title, input);
+            return wrapper;
+        }
+
+        function inputAmount(card, field) {
+            const input = card.querySelector(`[data-field="${field}"]`);
+            if (!input || input.value.trim() === "") return 0;
+            return Number(input.value);
+        }
+
+        function updateIgnoredAmount(card) {
+            const direction = card.dataset.direction;
+            const observed = Math.abs(Number(card.dataset.change));
+            const existing = direction === "in"
+                ? Number(card.dataset.subscription)
+                : Number(card.dataset.dividend) + Number(card.dataset.interest) + Number(card.dataset.withdrawal);
+            const added = direction === "in"
+                ? inputAmount(card, "subscription_amount")
+                : inputAmount(card, "dividend_amount") + inputAmount(card, "interest_deduction") + inputAmount(card, "withdrawal_amount");
+            const ignored = observed - existing - added;
+            const output = card.querySelector("[data-ignore]");
+            output.textContent = formatNumber(ignored);
+            output.className = ignored < 0 ? "font-semibold text-red-600" : "font-semibold text-gray-700";
+            return ignored;
+        }
+
+        function renderChange(change, ccy) {
+            const card = document.createElement("section");
+            card.className = "rounded-lg border border-gray-200 bg-gray-50 p-4 shadow-sm";
+            card.dataset.timestamp = change.timestamp;
+            card.dataset.direction = change.direction;
+            card.dataset.change = change.change;
+            card.dataset.subscription = change.subscription_amount;
+            card.dataset.dividend = change.dividend_amount;
+            card.dataset.interest = change.interest_deduction;
+            card.dataset.withdrawal = change.withdrawal_amount;
+
+            const summary = document.createElement("div");
+            summary.className = "grid grid-cols-1 gap-2 text-sm md:grid-cols-4";
+            const values = [
+                ["变动时刻", change.timestamp],
+                ["变动前权益", `${formatNumber(change.previous_equity)} ${ccy}`],
+                ["变动后权益", `${formatNumber(change.actual_equity)} ${ccy}`],
+                ["变动金额", `${change.change > 0 ? "+" : ""}${formatNumber(change.change)} ${ccy}`]
+            ];
+            values.forEach(([label, value], index) => {
+                const item = document.createElement("div");
+                item.innerHTML = `<div class="text-gray-500"></div><div class="font-semibold"></div>`;
+                item.children[0].textContent = label;
+                item.children[1].textContent = value;
+                if (index === 3) item.children[1].classList.add(change.change > 0 ? "text-green-600" : "text-red-600");
+                summary.appendChild(item);
+            });
+
+            const inputs = document.createElement("div");
+            inputs.className = `mt-4 grid grid-cols-1 gap-3 ${change.direction === "in" ? "md:grid-cols-2" : "md:grid-cols-4"}`;
+            if (change.direction === "in") {
+                inputs.appendChild(amountInput("申购金额", "subscription_amount", change.subscription_amount));
+            } else {
+                inputs.appendChild(amountInput("分红金额", "dividend_amount", change.dividend_amount));
+                inputs.appendChild(amountInput("除息金额", "interest_deduction", change.interest_deduction));
+                inputs.appendChild(amountInput("赎回金额", "withdrawal_amount", change.withdrawal_amount));
+            }
+            const ignored = document.createElement("div");
+            ignored.className = "rounded border border-dashed border-gray-300 bg-white px-3 py-2 text-sm";
+            ignored.innerHTML = `<div class="text-gray-500">自动忽略金额</div><span data-ignore></span><span> ${ccy}</span>`;
+            inputs.appendChild(ignored);
+            card.append(summary, inputs);
+            card.querySelectorAll("input").forEach(input => input.addEventListener("input", () => updateIgnoredAmount(card)));
+            updateIgnoredAmount(card);
+            return card;
+        }
+
+        document.getElementById("account_name").addEventListener("change", updateThresholdDefault);
+        updateThresholdDefault();
+
+        document.getElementById("actionForm").addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const button = document.getElementById("btn_query");
+            const accountInfo = selectedAccountInfo();
+            const date = document.getElementById("action_date").value;
+            const threshold = Number(document.getElementById("change_threshold").value);
+            if (!accountInfo.name || !date || !Number.isFinite(threshold) || threshold <= 0) {
+                showMessage("请填写有效的账户、日期和最小资金变动金额", true);
                 return;
             }
 
+            setButtonBusy(button, true);
             try {
-                const res = await fetch(`/subscribe_form/${account}`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                    body: `subscription_date=${encodeURIComponent(date)}&subscription_amount=${encodeURIComponent(amount)}`
-                });
+                const url = `/api/accounts/${encodeURIComponent(accountInfo.name)}/equity-changes?date=${encodeURIComponent(date)}&threshold=${encodeURIComponent(threshold)}`;
+                const res = await fetch(url);
                 const data = await res.json();
-                if (res.ok) {
-                    showMessage(data.message);
-                } else {
-                    showMessage(data.detail || "申购失败", true);
+                if (!res.ok) {
+                    throw new Error(data.detail || "查询失败");
                 }
+
+                const cards = document.getElementById("result_cards");
+                cards.replaceChildren();
+                data.changes.forEach(change => cards.appendChild(renderChange(change, accountInfo.ccy)));
+                document.getElementById("results").classList.toggle("hidden", data.changes.length === 0);
+                showMessage(data.changes.length ? `找到 ${data.changes.length} 个大额变动时刻` : "没有找到符合条件的大额变动");
             } catch (error) {
-                showMessage("网络错误", true);
+                document.getElementById("results").classList.add("hidden");
+                showMessage(error.message || "查询失败", true);
+            } finally {
+                setButtonBusy(button, false);
             }
         });
 
-        document.getElementById("btn_dividend").addEventListener("click", async () => {
-            const account = document.getElementById("account_name").value;
-            const date = document.getElementById("action_date").value.trim();
-            const amountStr = document.getElementById("action_amount").value.trim();
-            const amount = parseFloat(amountStr);
-            const outflowType = document.getElementById("outflow_type").value;
-            const outflowConfig = {
-                dividend: { path: "dividend_form", date: "dividend_date", amount: "dividend_amount", label: "分红" },
-                interest_deduction: { path: "interest_deduction_form", date: "deduction_date", amount: "deduction_amount", label: "扣息" },
-                withdrawal: { path: "withdrawal_form", date: "withdrawal_date", amount: "withdrawal_amount", label: "赎回" }
-            }[outflowType];
-
-            if (!account || !date || isNaN(amount)) {
-                showMessage("请完整填写账户、日期和金额", true);
+        document.getElementById("btn_save").addEventListener("click", async (event) => {
+            const button = event.currentTarget;
+            const accountInfo = selectedAccountInfo();
+            const cards = [...document.querySelectorAll("#result_cards section[data-timestamp]")];
+            const changes = [];
+            for (const card of cards) {
+                const change = {
+                    event_timestamp: card.dataset.timestamp,
+                    subscription_amount: inputAmount(card, "subscription_amount"),
+                    dividend_amount: inputAmount(card, "dividend_amount"),
+                    interest_deduction: inputAmount(card, "interest_deduction"),
+                    withdrawal_amount: inputAmount(card, "withdrawal_amount")
+                };
+                const amounts = Object.entries(change).filter(([key]) => key !== "event_timestamp").map(([, value]) => value);
+                if (amounts.some(value => !Number.isFinite(value) || value < 0)) {
+                    showMessage("资金变动金额必须是大于等于 0 的数字", true);
+                    return;
+                }
+                if (amounts.some(value => value > 0)) changes.push(change);
+            }
+            if (!changes.length) {
+                showMessage("请至少填写一个本次追加金额", true);
                 return;
             }
 
+            const lines = changes.map(change => {
+                const parts = [
+                    ["申购", change.subscription_amount],
+                    ["分红", change.dividend_amount],
+                    ["除息", change.interest_deduction],
+                    ["赎回", change.withdrawal_amount]
+                ].filter(([, amount]) => amount > 0).map(([label, amount]) => `${label} ${formatNumber(amount)}`);
+                return `${change.event_timestamp}：${parts.join("，")}`;
+            });
+            if (!window.confirm(`账户：${accountInfo.label}\n\n${lines.join("\n")}\n\n确认保存？`)) return;
+
+            setButtonBusy(button, true);
             try {
-                const res = await fetch(`/${outflowConfig.path}/${account}`, {
+                const res = await fetch(`/api/accounts/${encodeURIComponent(accountInfo.name)}/equity-changes`, {
                     method: "POST",
-                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                    body: `${outflowConfig.date}=${encodeURIComponent(date)}&${outflowConfig.amount}=${encodeURIComponent(amount)}`
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ changes })
                 });
                 const data = await res.json();
-                if (res.ok) {
-                    showMessage(data.message);
-                } else {
-                    showMessage(data.detail || `${outflowConfig.label}失败`, true);
-                }
+                if (!res.ok) throw new Error(data.detail || "保存失败");
+                window.alert(`${data.message}\n操作后剩余本金：${formatNumber(data.remaining_principal)} ${accountInfo.ccy}`);
+                document.getElementById("actionForm").requestSubmit();
             } catch (error) {
-                showMessage("网络错误", true);
+                showMessage(error.message || "保存失败", true);
+            } finally {
+                setButtonBusy(button, false);
             }
         });
     </script>

@@ -311,7 +311,8 @@ async def calculate_annualized_cumulative_return(account_name, account_info, sna
 
         total_days = (df['timestamp'].iloc[-1].date() - initial_date).days
 
-        # initial_unit 作为初始权益口径；分红加回、申购扣除后计算累计收益。
+        # initial_unit 作为建仓初始权益基准；剔除申购、分红、赎回和扣息等外部资金流后，
+        # 计算建仓以来累计收益率。不要使用会随申购和赎回变化的 principal。
         initial_unit = account_info["initial_unit"]
         numerator = final_actual_equity + total_dividends - total_subscriptions
         if not is_valid_denominator(initial_unit) or safe_metric_val(numerator) is None:

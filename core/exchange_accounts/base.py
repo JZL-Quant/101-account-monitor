@@ -265,14 +265,105 @@ class BaseExchangeAccount(ABC):
     async def handle_withdrawal_pro(self, withdrawal_date, withdrawal_amount):
         return await self.handle_outflow(withdrawal_date, withdrawal_amount, "withdraw_amount", "赎回")
 
+    async def handle_fund_changes(self, changes):
+        """Apply incremental fund classifications at explicit snapshot timestamps."""
+        if not changes:
+            raise ValueError("没有需要保存的资金变动")
+
+        try:
+            df = pd.read_csv(self.minute_snapshot_file)
+        except FileNotFoundError:
+            raise ValueError(f"找不到 {self.name} 的快照文件，无法处理资金变动")
+        for column in SNAPSHOT_COLUMNS:
+            if column not in df.columns:
+                df[column] = ""
+        df = df[SNAPSHOT_COLUMNS]
+        timestamps = parse_snapshot_timestamps(df, self.minute_snapshot_file)
+        equity = pd.to_numeric(df["actual_equity"], errors="coerce")
+
+        indexed_changes = []
+        seen_indexes = set()
+        for change in changes:
+            event_time = pd.to_datetime(change["event_timestamp"])
+            matching_indexes = df.index[timestamps == event_time]
+            if len(matching_indexes) != 1:
+                raise ValueError(f"无法唯一定位资金变动时刻 {change['event_timestamp']}")
+            event_index = int(matching_indexes[0])
+            if event_index == 0:
+                raise ValueError(f"{event_time} 之前没有快照，无法处理资金变动")
+            if event_index in seen_indexes:
+                raise ValueError(f"资金变动时刻 {event_time} 重复提交")
+            seen_indexes.add(event_index)
+            indexed_changes.append((event_index, event_time, change))
+
+        results = []
+        for event_index, event_time, change in sorted(indexed_changes):
+            amounts = {
+                "subscription_amount": float(change.get("subscription_amount", 0) or 0),
+                "dividend_amount": float(change.get("dividend_amount", 0) or 0),
+                "interest_deduction": float(change.get("interest_deduction", 0) or 0),
+                "withdrawal_amount": float(change.get("withdrawal_amount", 0) or 0),
+            }
+            if not all(is_valid_calculation_value(value) and value >= 0 for value in amounts.values()):
+                raise ValueError(f"{event_time} 包含无效的资金变动金额")
+            if not any(amounts.values()):
+                raise ValueError(f"{event_time} 没有填写资金变动金额")
+
+            observed_change = float(equity.iloc[event_index] - equity.iloc[event_index - 1])
+            outflow = (
+                amounts["dividend_amount"]
+                + amounts["interest_deduction"]
+                + amounts["withdrawal_amount"]
+            )
+            if observed_change > 0 and outflow > 0:
+                raise ValueError(f"{event_time} 是资金流入，只能填写申购金额")
+            if observed_change < 0 and amounts["subscription_amount"] > 0:
+                raise ValueError(f"{event_time} 是资金流出，不能填写申购金额")
+
+            net_value_before = pd.to_numeric(
+                pd.Series([df.at[event_index - 1, "net_value"]]), errors="coerce"
+            ).iloc[0]
+            if not is_valid_calculation_value(net_value_before, denominator=True):
+                raise ValueError(f"{event_time} 之前的净值无效，无法处理资金变动")
+
+            unit_delta = (amounts["subscription_amount"] - outflow) / float(net_value_before)
+            future_units = pd.to_numeric(df.loc[event_index:, "total_unit"], errors="coerce") + unit_delta
+            if not future_units.map(lambda value: is_valid_calculation_value(value, denominator=True)).all():
+                raise ValueError(f"{event_time} 处理后的总份额无效")
+            df.loc[event_index:, "total_unit"] = future_units
+
+            column_amounts = {
+                "subscription_amount": amounts["subscription_amount"],
+                "dividend_amount": amounts["dividend_amount"],
+                "interest_deduction": amounts["interest_deduction"],
+                "withdraw_amount": amounts["withdrawal_amount"],
+            }
+            cumulative = {}
+            for column, increment in column_amounts.items():
+                existing = pd.to_numeric(pd.Series([df.at[event_index, column]]), errors="coerce").iloc[0]
+                existing = 0.0 if pd.isna(existing) else float(existing)
+                cumulative[column] = existing + increment
+                df.at[event_index, column] = cumulative[column]
+
+            future_equity = pd.to_numeric(df.loc[event_index:, "actual_equity"], errors="coerce")
+            future_nav = future_equity / pd.to_numeric(df.loc[event_index:, "total_unit"], errors="coerce")
+            if not future_nav.map(is_valid_calculation_value).all():
+                raise ValueError(f"{event_time} 处理后的净值包含 NaN 或 Inf")
+            df.loc[event_index:, "net_value"] = future_nav
+            results.append({
+                "event_timestamp": str(df.at[event_index, "timestamp"]),
+                "total_unit": float(df.at[event_index, "total_unit"]),
+                "net_value": float(df.at[event_index, "net_value"]),
+                **cumulative,
+            })
+
+        df.to_csv(self.minute_snapshot_file, index=False)
+        self._latest_total_unit = float(pd.to_numeric(df.iloc[-1]["total_unit"], errors="raise"))
+        return results
+
     async def handle_outflow(self, event_date, amount, csv_column, action_label):
         if amount <= 0:
             raise ValueError(f"{action_label}金额必须大于 0")
-        try:
-            actual_equity = await self.get_actual_equity()
-        except Exception:
-            RUNTIME_LOGGER.exception("[%s] 获取账户信息失败", self.name)
-            raise
 
         try:
             df = pd.read_csv(self.minute_snapshot_file)
@@ -309,9 +400,10 @@ class BaseExchangeAccount(ABC):
                 f"{action_label}金额过大，处理后的总份额必须大于 "
                 f"{MIN_VALID_CALCULATION_VALUE:g}"
             )
-        if not is_valid_calculation_value(actual_equity):
-            raise ValueError(f"{action_label}时 actual_equity 无效")
-        new_net_value = actual_equity / new_total_unit
+        event_actual_equity = max_row["actual_equity"]
+        if not is_valid_calculation_value(event_actual_equity):
+            raise ValueError(f"{action_label}事件行的 actual_equity 无效")
+        new_net_value = float(event_actual_equity) / new_total_unit
         if not is_valid_calculation_value(new_net_value):
             raise ValueError(f"{action_label}后的净值无效")
 
@@ -336,11 +428,6 @@ class BaseExchangeAccount(ABC):
     async def handle_subscription_pro(self, subscription_date, subscription_amount):
         if subscription_amount <= 0:
             raise ValueError("申购金额必须大于 0")
-        try:
-            actual_equity = await self.get_actual_equity()
-        except Exception:
-            RUNTIME_LOGGER.exception("[%s] 获取账户信息失败", self.name)
-            raise
 
         try:
             df = pd.read_csv(self.minute_snapshot_file)
@@ -369,9 +456,10 @@ class BaseExchangeAccount(ABC):
         new_total_unit = max_row["total_unit"] + added_unit
         if not is_valid_calculation_value(new_total_unit, denominator=True):
             raise ValueError("申购后的 total_unit 无效")
-        if not is_valid_calculation_value(actual_equity):
-            raise ValueError("申购时 actual_equity 无效")
-        new_net_value = actual_equity / new_total_unit
+        event_actual_equity = max_row["actual_equity"]
+        if not is_valid_calculation_value(event_actual_equity):
+            raise ValueError("申购事件行的 actual_equity 无效")
+        new_net_value = float(event_actual_equity) / new_total_unit
         if not is_valid_calculation_value(new_net_value):
             raise ValueError("申购后的净值无效")
 
