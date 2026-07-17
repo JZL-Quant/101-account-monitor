@@ -77,9 +77,9 @@
                     </p>
                 </div>
 
-                <div class="mt-6">
+                <div class="mt-6 flex justify-center">
                     <button type="submit" id="btn_query"
-                        class="flex-1 bg-gradient-to-r from-green-500 to-green-300 hover:from-green-600 hover:to-green-400 text-white font-semibold py-3 rounded-lg shadow-md transform transition duration-300 hover:-translate-y-1 hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-green-300">
+                        class="w-48 bg-gradient-to-r from-green-500 to-green-300 hover:from-green-600 hover:to-green-400 text-white font-semibold py-3 rounded-lg shadow-md transform transition duration-300 hover:-translate-y-1 hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-green-300">
                         查询
                     </button>
                 </div>
@@ -128,8 +128,9 @@
 
         function updateThresholdDefault() {
             const accountInfo = selectedAccountInfo();
-            document.getElementById("change_threshold").value = accountInfo.ccy === "BTC" ? "0.001" : "100";
-            document.getElementById("threshold_currency").textContent = accountInfo.ccy;
+            const ccy = accountInfo.ccy.toUpperCase();
+            document.getElementById("change_threshold").value = ccy === "BTC" ? "0.001" : "100";
+            document.getElementById("threshold_currency").textContent = ccy;
         }
 
         function formatNumber(value) {
