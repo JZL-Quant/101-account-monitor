@@ -327,6 +327,16 @@ def register_routes(app, templates):
     async def read_operations(request: Request):
         return templates.TemplateResponse("index.html", {"request": request, "accounts": state.build_account_options()})
 
+    @app.get("/doc")
+    async def user_manual():
+        manual_path = os.path.join(state.BASE_DIR, "docs", "网页操作使用手册.html")
+        if not os.path.isfile(manual_path):
+            raise HTTPException(status_code=404, detail="网页操作使用手册不存在")
+        return FileResponse(
+            path=manual_path,
+            media_type="text/html; charset=utf-8",
+        )
+
     @app.get("/api/accounts/{account_name}/equity-changes")
     async def equity_changes(account_name: str, date: str, threshold: float):
         try:

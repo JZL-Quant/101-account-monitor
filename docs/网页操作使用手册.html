@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>账户监控系统网页操作使用手册</title>
+  <style>
+    :root { --blue:#2563eb; --red:#dc2626; --green:#059669; --ink:#172033; --muted:#64748b; --line:#dbe3ef; --soft:#f4f7fb; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; color:var(--ink); background:#eef2f7; font:15px/1.75 "Microsoft YaHei","Segoe UI",sans-serif; }
+    header { padding:58px 24px; color:#fff; background:linear-gradient(125deg,#15345d,#2563eb 62%,#38bdf8); }
+    header .wrap, main { max-width:1080px; margin:auto; }
+    h1 { margin:0 0 8px; font-size:38px; }
+    header p { margin:0; opacity:.9; }
+    main { padding:28px 18px 70px; }
+    nav, article { background:#fff; border:1px solid var(--line); border-radius:14px; box-shadow:0 8px 24px rgba(31,54,88,.06); }
+    nav { position:sticky; top:10px; z-index:2; display:flex; flex-wrap:wrap; gap:8px; padding:12px; margin-bottom:22px; }
+    nav a { padding:6px 12px; color:#24466f; background:#edf4ff; border-radius:999px; text-decoration:none; font-weight:700; }
+    article { padding:30px; margin-bottom:22px; }
+    h2 { margin:0 0 18px; padding-bottom:10px; border-bottom:2px solid #e8eef7; color:#173f70; font-size:26px; }
+    h3 { margin:26px 0 10px; color:#24568d; font-size:19px; }
+    .lead { font-size:17px; color:#3b4b62; }
+    .url { display:inline-block; padding:2px 8px; background:#eef2f7; border-radius:5px; color:#0f4c81; font-family:Consolas,monospace; }
+    .steps { counter-reset:step; padding:0; list-style:none; }
+    .steps > li { position:relative; min-height:40px; margin:14px 0; padding-left:48px; }
+    .steps > li::before { counter-increment:step; content:counter(step); position:absolute; left:0; top:0; width:32px; height:32px; color:#fff; background:var(--blue); border-radius:50%; text-align:center; line-height:32px; font-weight:800; }
+    .tip,.warn,.done { margin:16px 0; padding:13px 16px; border-left:5px solid; border-radius:7px; }
+    .tip { border-color:#3b82f6; background:#eff6ff; }
+    .warn { border-color:#f59e0b; background:#fffbeb; }
+    .done { border-color:#10b981; background:#ecfdf5; }
+    .screen { margin:18px 0 26px; overflow:hidden; border:1px solid #cbd5e1; border-radius:12px; background:#f3f4f6; box-shadow:0 12px 28px rgba(15,23,42,.10); }
+    .browser { display:flex; align-items:center; gap:7px; padding:9px 13px; background:#dfe5ec; }
+    .dot { width:11px; height:11px; border-radius:50%; background:#fb7185; }
+    .dot:nth-child(2){background:#fbbf24}.dot:nth-child(3){background:#34d399}
+    .address { flex:1; margin-left:8px; padding:5px 12px; color:#64748b; background:#fff; border-radius:6px; font:12px Consolas,monospace; }
+    .page { padding:24px; background:#f8fafc; }
+    .page-head { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-bottom:18px; }
+    .page-title { color:#dc2626; font-size:25px; font-weight:800; }
+    .panel { max-width:760px; margin:auto; padding:22px; background:#fff; border-radius:10px; box-shadow:0 4px 14px rgba(15,23,42,.08); }
+    .form-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+    .field { margin:10px 0; }
+    .field label { display:block; margin-bottom:5px; color:#475569; font-size:12px; font-weight:800; }
+    .input { min-height:38px; padding:8px 10px; color:#64748b; background:#f8fafc; border:1px solid #cbd5e1; border-radius:7px; }
+    .btn { display:inline-block; padding:9px 15px; color:#fff; background:var(--blue); border-radius:7px; font-weight:800; text-decoration:none; }
+    .btn.gray { background:#4b5563; }.btn.green{background:var(--green)}.btn.red{background:var(--red)}
+    .btn.wide { width:100%; text-align:center; margin-top:12px; }
+    .callout { position:relative; outline:4px solid #f59e0b; outline-offset:3px; }
+    .callout::after { content:attr(data-note); position:absolute; z-index:1; right:-4px; top:-30px; padding:3px 8px; color:#78350f; background:#fde68a; border-radius:5px; white-space:nowrap; font-size:12px; font-weight:800; }
+    table { width:100%; border-collapse:collapse; background:#fff; }
+    th,td { padding:10px 12px; border:1px solid #dce3ec; text-align:left; }
+    th { background:#edf4ff; }
+    .account-table { overflow:auto; }
+    .account-table table { min-width:760px; font-size:12px; }
+    .candidate { margin-top:16px; padding:16px; background:#f8fafc; border:1px solid #dbe3ef; border-radius:9px; }
+    .candidate-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+    .candidate-grid small { display:block; color:#64748b; }
+    .amounts { display:grid; grid-template-columns:repeat(4,1fr); gap:9px; margin-top:14px; }
+    .center { text-align:center; }
+    .checklist li { margin:7px 0; }
+    footer { padding:25px; color:#64748b; text-align:center; }
+    @media (max-width:760px) {
+      h1{font-size:30px} article{padding:20px}.form-grid,.candidate-grid,.amounts{grid-template-columns:1fr}.page-head{align-items:flex-start;flex-direction:column}.callout::after{right:0}
+    }
+    @media print {
+      body{background:#fff} nav{display:none} article{box-shadow:none;break-inside:avoid}.screen{break-inside:avoid} header{padding:28px} main{padding:16px}
+    }
+  </style>
+</head>
+<body>
+<header><div class="wrap"><h1>账户监控系统网页操作使用手册</h1><p>适用于新建账户、处理资金流入/流出、查看与归档账户</p></div></header>
+<main>
+  <nav>
+    <a href="#start">开始使用</a><a href="#new">新建账户</a><a href="#fund">资金流入/流出</a>
+    <a href="#archive">归档账户</a><a href="#download">下载数据</a><a href="#errors">常见问题</a>
+  </nav>
+
+  <article id="start">
+    <h2>一、开始使用</h2>
+    <p class="lead">用浏览器打开账户监控系统：<span class="url">http://risk.jzlcapital.xyz</span>。</p>
+    <table>
+      <tr><th>要做的事情</th><th>打开的页面</th></tr>
+      <tr><td>查询并处理资金变化</td><td><span class="url">http://risk.jzlcapital.xyz/operations</span></td></tr>
+      <tr><td>查看、归档账户或下载数据</td><td><span class="url">http://risk.jzlcapital.xyz/accounts</span></td></tr>
+      <tr><td>新建账户</td><td><span class="url">http://risk.jzlcapital.xyz/accounts/new</span></td></tr>
+    </table>
+    <div class="warn"><strong>重要：</strong>资金操作页面只登记监控账本，不会替你在交易所转账。先完成真实入金、出金、分红或扣息，再到网页登记。</div>
+  </article>
+
+  <article id="new">
+    <h2>二、如何新建账户</h2>
+    <ol class="steps">
+      <li>进入“资金操作”页面，在页面底部点击蓝色文字 <strong>新增账户</strong>；也可以在“账户列表”右上角点击蓝色 <strong>新增账户</strong> 按钮。</li>
+      <li>按下表依次填写账户资料。</li>
+    </ol>
+    <div class="screen">
+      <div class="browser"><i class="dot"></i><i class="dot"></i><i class="dot"></i><div class="address">http://risk.jzlcapital.xyz/accounts/new</div></div>
+      <div class="page"><div class="panel">
+        <div class="page-head"><strong style="font-size:23px;color:#2563eb">新增账户</strong><span>返回操作页</span></div>
+        <div class="form-grid">
+          <div class="field"><label>产品名称</label><div class="input">例如：BV</div></div>
+          <div class="field"><label>序号</label><div class="input">例如：1</div></div>
+          <div class="field"><label>客户标识（Client）</label><div class="input">例如：LTP</div></div>
+        </div>
+        <div class="field"><label>委托数量</label><div class="input">例如：1000000</div></div>
+        <div class="field"><label>币种</label><div class="input">USDT ▼</div></div>
+        <div class="field"><label>交易所</label><div class="input">Binance ▼</div></div>
+        <div class="field"><label>账户类型</label><div class="input">普通账户 ▼</div></div>
+        <div class="field"><label>利率（Interest Rate）</label><div class="input">可留空，系统自动推断</div></div>
+        <div class="field"><label>API Key（隐藏输入）</label><div class="input">••••••••••</div></div>
+        <div class="field"><label>Secret Key（隐藏输入）</label><div class="input">••••••••••</div></div>
+        <div class="btn wide callout" data-note="全部检查后点这里">保存并刷新账户</div>
+      </div></div>
+    </div>
+    <table>
+      <tr><th>输入项</th><th>怎么填</th><th>示例/注意事项</th></tr>
+      <tr><td>产品名称</td><td>输入产品前缀，只能用英文字母和数字</td><td>BV</td></tr>
+      <tr><td>序号</td><td>输入数字序号</td><td>1；最终账户名自动组成 BV_1</td></tr>
+      <tr><td>客户标识</td><td>输入客户简称，只能用英文字母和数字</td><td>LTP</td></tr>
+      <tr><td>委托数量</td><td>输入初始委托金额或数量，必须大于 0</td><td>USDT 账户如 1000000</td></tr>
+      <tr><td>币种</td><td>下拉选择 USDT 或 BTC</td><td>必须与账户实际计价币种一致</td></tr>
+      <tr><td>交易所</td><td>下拉选择 Binance 或 Gate</td><td>必须与密钥所属交易所一致</td></tr>
+      <tr><td>账户类型</td><td>选择“普通账户”或“Pro 账户”</td><td>不确定时联系管理员</td></tr>
+      <tr><td>利率</td><td>知道时填写；不知道可以留空</td><td>留空后系统按同类账户推断，无法推断则为 0</td></tr>
+      <tr><td>API Key / Secret Key</td><td>粘贴交易所只读密钥</td><td>不要使用带交易、提现权限的密钥</td></tr>
+    </table>
+    <ol class="steps" start="3">
+      <li>检查币种、交易所、委托数量和密钥是否正确。</li>
+      <li>点击页面底部蓝色按钮 <strong>保存并刷新账户</strong>。按钮会临时显示“正在保存...”。</li>
+      <li>页面下方出现绿色“新增成功”提示后，进入“账户列表”确认新账户已经出现。</li>
+    </ol>
+    <div class="done"><strong>成功标志：</strong>页面显示绿色成功信息，新账户出现在账户列表，并开始生成快照。</div>
+    <div class="warn"><strong>失败时：</strong>页面会显示红色原因。常见原因是产品名称重复、密钥错误、密钥权限不足、交易所选择错误。</div>
+  </article>
+
+  <article id="fund">
+    <h2>三、如何处理资金流入和流出</h2>
+    <p class="lead">入口：打开 <span class="url">/operations</span>，或在“账户列表”右上角点击灰色 <strong>资金操作</strong>。</p>
+    <h3>第 1 步：查找发生变化的时刻</h3>
+    <div class="screen">
+      <div class="browser"><i class="dot"></i><i class="dot"></i><i class="dot"></i><div class="address">http://risk.jzlcapital.xyz/operations</div></div>
+      <div class="page"><div class="panel">
+        <div class="center" style="font-size:25px;font-weight:800;color:#2563eb">查找大额资金变动</div>
+        <div class="field"><label>选择账户</label><div class="input callout" data-note="① 先选正确账户">BV_1（Binance_monitor / USDT）▼</div></div>
+        <div class="field"><label>日期（YYYY-MM-DD）</label><div class="input callout" data-note="② 选择资金发生日期">2026-07-17</div></div>
+        <div class="field"><label>最小资金变动金额</label><div class="input callout" data-note="③ 设置查询门槛">100　USDT</div></div>
+        <div class="center"><span class="btn green callout" data-note="④ 点查询">查询</span></div>
+      </div></div>
+    </div>
+    <ol class="steps">
+      <li>在 <strong>选择账户</strong> 下拉框中选择发生资金变化的账户。</li>
+      <li>在 <strong>日期</strong> 中选择真实资金操作发生的日期。</li>
+      <li>确认 <strong>最小资金变动金额</strong>。USDT 默认 100，BTC 默认 0.001；建议略低于实际变化金额，避免漏查。</li>
+      <li>点击绿色 <strong>查询</strong> 按钮。页面会提示找到几个大额变动时刻。</li>
+    </ol>
+    <h3>第 2 步：判断是流入还是流出</h3>
+    <div class="screen"><div class="page"><div class="panel">
+      <div class="candidate">
+        <div class="candidate-grid">
+          <div><small>变动时刻</small><strong>2026-07-17 03:01</strong></div>
+          <div><small>变动前权益</small><strong>1,000,000 USDT</strong></div>
+          <div><small>变动后权益</small><strong>1,010,000 USDT</strong></div>
+          <div><small>变动金额</small><strong style="color:#059669">+10,000 USDT</strong></div>
+        </div>
+        <div class="amounts">
+          <div class="field"><label>申购金额（已记录 0）</label><div class="input callout" data-note="流入填这里">10000</div></div>
+          <div class="field"><label>自动忽略金额</label><div class="input">0 USDT</div></div>
+        </div>
+      </div>
+    </div></div></div>
+    <table>
+      <tr><th>页面显示</th><th>通常表示</th><th>应该填写</th></tr>
+      <tr><td>绿色正数，例如 +10,000</td><td>资金流入</td><td>在“申购金额”填写本次流入金额</td></tr>
+      <tr><td>红色负数，例如 -5,000</td><td>资金流出</td><td>按实际情况填写“分红金额”“除息金额”或“赎回金额”</td></tr>
+    </table>
+    <div class="tip"><strong>自动忽略金额：</strong>权益变化减去你填写的分类金额后剩余的数。正常情况下应接近 0；小额手续费、盈亏或四舍五入差异可以保留。若变成红色负数，说明填写总额超过了实际变化，应修改。</div>
+    <h3>第 3 步：填写流出分类</h3>
+    <div class="screen"><div class="page"><div class="panel">
+      <div class="candidate">
+        <div class="candidate-grid">
+          <div><small>变动时刻</small><strong>2026-07-17 06:15</strong></div>
+          <div><small>变动前权益</small><strong>1,010,000 USDT</strong></div>
+          <div><small>变动后权益</small><strong>1,005,000 USDT</strong></div>
+          <div><small>变动金额</small><strong style="color:#dc2626">-5,000 USDT</strong></div>
+        </div>
+        <div class="amounts">
+          <div class="field"><label>分红金额</label><div class="input">1000</div></div>
+          <div class="field"><label>除息金额</label><div class="input">0</div></div>
+          <div class="field"><label>赎回金额</label><div class="input">4000</div></div>
+          <div class="field"><label>自动忽略金额</label><div class="input">0 USDT</div></div>
+        </div>
+      </div>
+      <div class="btn wide callout" data-note="全部核对后点保存">保存</div>
+    </div></div></div>
+    <ul class="checklist">
+      <li><strong>分红金额：</strong>付给客户的收益分配，不减少“当前本金”。</li>
+      <li><strong>除息金额：</strong>扣除的利息或资金成本，不减少“当前本金”。</li>
+      <li><strong>赎回金额：</strong>客户收回的本金，会减少“当前本金”，不能超过当前本金。</li>
+      <li>同一次流出可以拆成多类，例如流出 5,000 = 赎回 4,000 + 分红 1,000。</li>
+    </ul>
+    <h3>第 4 步：保存并确认</h3>
+    <ol class="steps">
+      <li>检查账户、变动时刻、金额方向和各分类金额。</li>
+      <li>页面存在多个变化卡片时，只填写需要处理的卡片；留空的卡片不会保存。</li>
+      <li>点击蓝色 <strong>保存</strong> 按钮。</li>
+      <li>浏览器弹出确认框，逐行核对账户、时间和金额，确认无误后点击 <strong>确定</strong>。</li>
+      <li>成功后会弹出“成功保存”以及“操作后剩余本金”。点击确定后，页面自动重新查询。</li>
+    </ol>
+    <div class="warn"><strong>不要重复保存：</strong>同一时刻再次填写并保存会追加金额。如果网络中断或不确定是否保存成功，应先重新查询，查看“已记录”和“自动忽略金额”，确认后再操作。</div>
+  </article>
+
+  <article id="archive">
+    <h2>四、如何归档账户</h2>
+    <ol class="steps">
+      <li>打开 <span class="url">/accounts</span>。如果当前在资金操作页，可直接在浏览器地址栏输入该地址。</li>
+      <li>在账户表格中找到要停止监控的账户，仔细核对账户名称、客户、币种和当前本金。</li>
+      <li>点击该账户最右侧红色 <strong>归档</strong> 按钮。</li>
+    </ol>
+    <div class="screen">
+      <div class="browser"><i class="dot"></i><i class="dot"></i><i class="dot"></i><div class="address">http://risk.jzlcapital.xyz/accounts</div></div>
+      <div class="page">
+        <div class="page-head"><div class="page-title">账户列表</div><div><span class="btn gray">资金操作</span> <span class="btn">新增账户</span></div></div>
+        <div class="account-table"><table>
+          <tr><th>账户名称</th><th>客户</th><th>币种</th><th>初始份额</th><th>当前本金</th><th>快照</th><th>状态 / 操作</th></tr>
+          <tr><td><strong style="color:#2563eb">BV_1</strong></td><td>LTP</td><td>USDT</td><td>1,000,000</td><td>996,000</td><td><span class="btn green">下载 CSV</span></td><td><span class="btn red callout" data-note="核对账户后点这里">归档</span></td></tr>
+        </table></div>
+      </div>
+    </div>
+    <ol class="steps" start="4">
+      <li>弹窗显示“确认归档账户 XXX？归档后将停止监控，且不能再次创建同名账户。”再次核对名称。</li>
+      <li>确认无误点击 <strong>确定</strong>；取消操作点击 <strong>取消</strong>。</li>
+      <li>处理中按钮显示“归档中…”。完成后页面自动刷新，该行变为灰色并显示 <strong>已归档</strong>。</li>
+    </ol>
+    <div class="warn"><strong>归档前必须知道：</strong>归档后停止采集；当前网页没有恢复功能；相同名称不能重新创建。归档前建议先点击“下载 CSV”备份快照。</div>
+  </article>
+
+  <article id="download">
+    <h2>五、下载快照和运行日志</h2>
+    <h3>下载账户快照</h3>
+    <ol class="steps">
+      <li>进入“账户列表”，找到对应账户。</li>
+      <li>点击该行绿色 <strong>下载 CSV</strong>。活动账户和已归档账户都可以下载。</li>
+      <li>浏览器开始下载分钟快照文件；如果提示文件尚未生成，稍后再试或联系管理员。</li>
+    </ol>
+    <h3>下载运行日志</h3>
+    <ol class="steps">
+      <li>在账户列表上方找到“下载运行日志”。</li>
+      <li>从下拉框选择日期，点击灰色 <strong>下载</strong>。</li>
+      <li>当天只有一个日志时下载 LOG 文件；有多个日志时下载 ZIP 压缩包。</li>
+    </ol>
+  </article>
+
+  <article id="errors">
+    <h2>六、常见问题</h2>
+    <table>
+      <tr><th>现象</th><th>处理方法</th></tr>
+      <tr><td>新建账户提示凭证或权限验证失败</td><td>检查交易所、API Key、Secret 是否匹配；确认密钥已启用资产查询权限和正确的 IP 白名单。</td></tr>
+      <tr><td>新建账户提示名称已存在</td><td>修改产品名称或序号。已归档账户的名称也不能重复使用。</td></tr>
+      <tr><td>查询不到资金变化</td><td>确认账户和日期；把最小资金变动金额调低；确认分钟快照已经记录到该次权益变化。</td></tr>
+      <tr><td>自动忽略金额是红色负数</td><td>填写的分类金额总和超过实际权益变化，减少或更正申购、赎回、分红、除息金额。</td></tr>
+      <tr><td>保存提示处理后的本金不能小于 0</td><td>赎回金额超过了当前本金，核对是否应归类为分红或除息，或更正赎回金额。</td></tr>
+      <tr><td>保存后仍显示同一候选</td><td>查看“已记录”和“自动忽略金额”；仍有未分类余额时会继续显示，可继续追加正确分类。</td></tr>
+      <tr><td>归档后提示 Grafana 删除失败</td><td>账户通常已经归档成功；不要重复点归档，联系管理员检查运行日志和 Grafana。</td></tr>
+    </table>
+    <div class="tip"><strong>操作原则：</strong>不确定资金性质时先不要保存；先和交易所流水、客户指令或财务记录核对。</div>
+  </article>
+</main>
+<footer>账户监控系统网页操作使用手册 · 可直接用浏览器打开，也可在浏览器中“打印 → 另存为 PDF”</footer>
+</body>
+</html>
