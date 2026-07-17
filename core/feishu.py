@@ -1,5 +1,6 @@
 import asyncio
 import os
+import random
 
 import aiohttp
 
@@ -13,10 +14,26 @@ RUNTIME_LOGGER = setup_runtime_logger("feishu")
 class FeishuClient:
     DEFAULT_CARD_TEMPLATE_ID = "AAqNp4fBl3x4y"
 
-    def __init__(self, webhook_urls=None, app_id=None, app_secret=None):
+    def __init__(self, webhook_urls=None, app_id=None, app_secret=None, max_concurrency=2):
         self.webhook_urls = list(dict.fromkeys(url for url in (webhook_urls or []) if url))
         self.app_id = app_id
         self.app_secret = app_secret
+        self._session = None
+        self._session_lock = asyncio.Lock()
+        self._send_semaphore = asyncio.Semaphore(max_concurrency)
+
+    async def _get_session(self):
+        if self._session is not None and not self._session.closed:
+            return self._session
+        async with self._session_lock:
+            if self._session is None or self._session.closed:
+                self._session = aiohttp.ClientSession()
+        return self._session
+
+    async def close(self):
+        if self._session is not None and not self._session.closed:
+            await self._session.close()
+        self._session = None
 
     @classmethod
     def from_env(cls):
@@ -29,7 +46,8 @@ class FeishuClient:
     async def send_payload(self, json_data: dict, retries: int = 5):
         headers = {"Content-Type": "application/json"}
 
-        async with aiohttp.ClientSession() as session:
+        async with self._send_semaphore:
+            session = await self._get_session()
             for url in self.webhook_urls:
                 success = False
                 RUNTIME_LOGGER.info("sending to %s...", url[:30])
@@ -59,11 +77,19 @@ class FeishuClient:
                                 msg,
                             )
 
-                    except Exception as exc:
+                    except Exception:
                         RUNTIME_LOGGER.exception("attempt %s exception (%s)", attempt, url[:20])
 
                     if attempt < retries:
-                        await asyncio.sleep(3)
+                        delay = (2 ** (attempt - 1)) + random.uniform(0, 0.5)
+                        RUNTIME_LOGGER.info(
+                            "retrying %s after %.2fs (attempt %s/%s)",
+                            url[:20],
+                            delay,
+                            attempt + 1,
+                            retries,
+                        )
+                        await asyncio.sleep(delay)
 
                 if not success:
                     RUNTIME_LOGGER.error("all attempts failed for %s", url)
@@ -92,13 +118,13 @@ class FeishuClient:
         }
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, timeout=10) as resp:
-                    resp_json = await resp.json()
-                    if resp.status == 200 and resp_json.get("code") == 0:
-                        return resp_json.get("tenant_access_token")
-                    RUNTIME_LOGGER.warning("tenant token failed: status=%s, resp=%s", resp.status, resp_json)
-        except Exception as exc:
+            session = await self._get_session()
+            async with session.post(url, json=payload, timeout=10) as resp:
+                resp_json = await resp.json()
+                if resp.status == 200 and resp_json.get("code") == 0:
+                    return resp_json.get("tenant_access_token")
+                RUNTIME_LOGGER.warning("tenant token failed: status=%s, resp=%s", resp.status, resp_json)
+        except Exception:
             RUNTIME_LOGGER.exception("tenant token exception")
         return None
 
@@ -120,13 +146,13 @@ class FeishuClient:
                     filename=os.path.basename(image_path),
                     content_type="image/png",
                 )
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(url, headers=headers, data=form, timeout=20) as resp:
-                        resp_json = await resp.json()
-                        if resp.status == 200 and resp_json.get("code") == 0:
-                            return resp_json.get("data", {}).get("image_key")
-                        RUNTIME_LOGGER.warning("image upload failed: status=%s, resp=%s", resp.status, resp_json)
-        except Exception as exc:
+                session = await self._get_session()
+                async with session.post(url, headers=headers, data=form, timeout=20) as resp:
+                    resp_json = await resp.json()
+                    if resp.status == 200 and resp_json.get("code") == 0:
+                        return resp_json.get("data", {}).get("image_key")
+                    RUNTIME_LOGGER.warning("image upload failed: status=%s, resp=%s", resp.status, resp_json)
+        except Exception:
             RUNTIME_LOGGER.exception("image upload exception")
         return None
 

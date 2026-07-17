@@ -22,6 +22,7 @@ from config.settings import (
     MONITOR_NAV_PORT,
     PROJECT_ROOT,
 )
+from core.feishu import NOTIFIER
 from core.runtime_logging import maintain_daily_runtime_log, setup_runtime_logger
 from nav_service import state
 from nav_service.app_factory import create_app
@@ -55,7 +56,7 @@ async def lifespan(_app):
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-        await state.close_accounts()
+        await asyncio.gather(state.close_accounts(), NOTIFIER.close())
 
 
 app = create_app(BASE_DIR, lifespan=lifespan)
