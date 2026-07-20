@@ -130,7 +130,7 @@
         function updateThresholdDefault() {
             const accountInfo = selectedAccountInfo();
             const ccy = accountInfo.ccy.toUpperCase();
-            document.getElementById("change_threshold").value = ccy === "BTC" ? "0.001" : "100";
+            document.getElementById("change_threshold").value = ccy === "BTC" ? "1" : "100";
             document.getElementById("threshold_currency").textContent = ccy;
         }
 

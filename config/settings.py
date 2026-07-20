@@ -66,6 +66,12 @@ DAILY_HOUR = int(os.getenv("BINANCE_DAILY_HOUR", "10"))
 DAILY_MINUTE = int(os.getenv("BINANCE_DAILY_MINUTE", "31"))
 RUN_DAILY_ON_STARTUP = os.getenv("BINANCE_RUN_DAILY_ON_STARTUP", "1") == "1"
 
+# 分钟级大额资金变动告警阈值。
+LARGE_EQUITY_CHANGE_THRESHOLDS = {
+    "USDT": float(os.getenv("LARGE_EQUITY_CHANGE_USDT_THRESHOLD", "100")),
+    "BTC": float(os.getenv("LARGE_EQUITY_CHANGE_BTC_THRESHOLD", "1")),
+}
+
 DEFAULT_RUNTIME_LOG_LEVEL = os.getenv("RUNTIME_LOG_LEVEL", "WARNING")
 
 # 收益率及净值计算的最小有效分母，避免零值或极小值导致溢出。

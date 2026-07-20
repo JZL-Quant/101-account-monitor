@@ -6,6 +6,10 @@ from datetime import datetime, timedelta, timezone
 from core.account_registry import get_account_registry
 from core.metrics import AccountMetricsStore
 from core.feishu import NOTIFIER
+from core.large_equity_changes import (
+    build_large_equity_change_card,
+    find_new_large_equity_changes,
+)
 from core.report_cards import build_group_schema2_card
 from core.runtime_logging import setup_runtime_logger
 from core.scheduler import MonitorScheduler
@@ -44,7 +48,6 @@ def is_valid_denominator(value):
 account_registry = get_account_registry(str(ACCOUNTS_CONFIG_PATH))
 accounts = account_registry.local_accounts()
 account_metrics = AccountMetricsStore(accounts)
-
 
 def register_monitor_account(account_name: str, account_info: dict):
     """将运行时新增账户同时加入调度集合和 Prometheus 注册表。"""
@@ -575,6 +578,23 @@ async def send_daily_report_cards(cards: list):
         await asyncio.gather(*(NOTIFIER.send_card(card) for card in cards))
 
 
+async def check_large_equity_changes():
+    """分钟级任务：检查并合并发送本分钟发现的大额资金变动。"""
+    detected_changes = []
+    for account_name, account_info in list(accounts.items()):
+        try:
+            snapshot_df = read_minute_snapshot_file(account_info["minute_snapshot_file"])
+            detected_changes.extend(
+                find_new_large_equity_changes(account_name, account_info, snapshot_df)
+            )
+        except Exception:
+            RUNTIME_LOGGER.exception(
+                "[large_equity_change] account %s check failed", account_name
+            )
+    if detected_changes:
+        await NOTIFIER.send_card(build_large_equity_change_card(detected_changes))
+
+
 async def update_metrics():
     """分钟级任务：更新最新实际权益、24 小时点对点收益和 1 小时中位数收益。"""
     for account_name, account_info in list(accounts.items()):
@@ -608,6 +628,7 @@ async def update_annualized_metrics():
 def start_monitor_scheduler():
     scheduler = MonitorScheduler(RUNTIME_LOGGER)
     scheduler.add_task("minute", update_metrics)
+    scheduler.add_task("minute", check_large_equity_changes)
     scheduler.add_task("daily", update_annualized_metrics)
     return scheduler
 

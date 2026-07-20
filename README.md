@@ -148,6 +148,8 @@ GRAFANA_PASSWORD = ""
 | `BINANCE_DAILY_HOUR` | `10` | 每日任务执行小时 |
 | `BINANCE_DAILY_MINUTE` | `31` | 每日任务执行分钟 |
 | `BINANCE_RUN_DAILY_ON_STARTUP` | `1` | 启动时是否执行日报任务 |
+| `LARGE_EQUITY_CHANGE_USDT_THRESHOLD` | `100` | 分钟级大额资金变动告警的 USDT 阈值 |
+| `LARGE_EQUITY_CHANGE_BTC_THRESHOLD` | `1` | 分钟级大额资金变动告警的 BTC 阈值 |
 | `GRAFANA_URL` | `http://127.0.0.1:3000` | Grafana 地址 |
 | `GRAFANA_PROMETHEUS_UID_ACCOUNT_MONITOR` | 空 | Prometheus 数据源 UID |
 | `GRAFANA_PROMETHEUS_INSTANCE_ACCOUNT_MONITOR` | `localhost:7007` | Prometheus 实例标签 |
@@ -178,7 +180,7 @@ chmod +x start_account_monitor.sh
 
 启动后可访问：
 
-- 大额资金变动查询页面：`http://127.0.0.1:7007/operations`（USDT 默认阈值 100，BTC 默认阈值 0.001，可在页面修改）
+- 大额资金变动查询页面：`http://127.0.0.1:7007/operations`（USDT 默认阈值 100，BTC 默认阈值 1，可在页面修改）
 - 账户表格：`http://127.0.0.1:7007/accounts`
 - 账户 JSON API：`http://127.0.0.1:7007/api/accounts`
 - 新增账户：`http://127.0.0.1:7007/accounts/new`
