@@ -6,23 +6,41 @@ from datetime import datetime
 from pathlib import Path
 
 try:
-    from .local_secrets import (
-        FEISHU_APP_ID,
-        FEISHU_APP_SECRET,
-        FEISHU_BOT_WEBHOOK_URL,
-        FEISHU_BOT_WEBHOOK_URL_1,
-        GRAFANA_API_TOKEN,
-        GRAFANA_PASSWORD,
-        GRAFANA_USER,
-    )
+    from . import local_secrets as _local_secrets
 except ModuleNotFoundError:
-    FEISHU_BOT_WEBHOOK_URL = ""
-    FEISHU_BOT_WEBHOOK_URL_1 = ""
-    FEISHU_APP_ID = ""
-    FEISHU_APP_SECRET = ""
-    GRAFANA_API_TOKEN = ""
-    GRAFANA_USER = ""
-    GRAFANA_PASSWORD = ""
+    _local_secrets = None
+
+
+def _secret(name: str, default=""):
+    if _local_secrets is None:
+        return default
+    return getattr(_local_secrets, name, default)
+
+
+FEISHU_APP_ID = _secret("FEISHU_APP_ID")
+FEISHU_APP_SECRET = _secret("FEISHU_APP_SECRET")
+GRAFANA_API_TOKEN = _secret("GRAFANA_API_TOKEN")
+GRAFANA_USER = _secret("GRAFANA_USER")
+GRAFANA_PASSWORD = _secret("GRAFANA_PASSWORD")
+
+# Prefer the list form so notification groups can be added or removed in one
+# place. Keep reading the two legacy variables for existing deployments.
+_configured_feishu_webhooks = _secret("FEISHU_BOT_WEBHOOK_URLS", None)
+if _configured_feishu_webhooks is None:
+    _configured_feishu_webhooks = (
+        _secret("FEISHU_BOT_WEBHOOK_URL"),
+        _secret("FEISHU_BOT_WEBHOOK_URL_1"),
+    )
+elif isinstance(_configured_feishu_webhooks, str):
+    _configured_feishu_webhooks = (_configured_feishu_webhooks,)
+
+FEISHU_BOT_WEBHOOK_URLS = tuple(
+    dict.fromkeys(
+        url.strip()
+        for url in _configured_feishu_webhooks
+        if isinstance(url, str) and url.strip()
+    )
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -61,10 +79,6 @@ def logger_level(log_name: str) -> str:
     safe_name = re.sub(r"\W+", "_", log_name).strip("_").upper()
     return os.getenv(f"{safe_name}_LOG_LEVEL", DEFAULT_RUNTIME_LOG_LEVEL)
 
-
-FEISHU_BOT_WEBHOOK_URLS = tuple(
-    value for value in (FEISHU_BOT_WEBHOOK_URL, FEISHU_BOT_WEBHOOK_URL_1) if value
-)
 
 GRAFANA_URL = os.getenv("GRAFANA_URL", "http://127.0.0.1:3000").strip()
 GRAFANA_PROMETHEUS_UID_ACCOUNT_MONITOR = os.getenv(

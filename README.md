@@ -104,8 +104,10 @@ cp config/local_secrets.example.py config/local_secrets.py
 然后编辑 `config/local_secrets.py`：
 
 ```python
-FEISHU_BOT_WEBHOOK_URL = "https://open.feishu.cn/open-apis/bot/v2/hook/..."
-FEISHU_BOT_WEBHOOK_URL_1 = ""
+FEISHU_BOT_WEBHOOK_URLS = [
+    "https://open.feishu.cn/open-apis/bot/v2/hook/群机器人-webhook-1",
+    "https://open.feishu.cn/open-apis/bot/v2/hook/群机器人-webhook-2",
+]
 FEISHU_APP_ID = ""
 FEISHU_APP_SECRET = ""
 
@@ -128,9 +130,9 @@ GRAFANA_PASSWORD = ""
 
 #### 飞书是否需要 App API
 
-- 仅发送文字或卡片到群机器人：只需 `FEISHU_BOT_WEBHOOK_URL`，不需要 `APP_ID` 和 `APP_SECRET`。
+- 仅发送文字或卡片到群机器人：只需在 `FEISHU_BOT_WEBHOOK_URLS` 列表中添加群机器人的 webhook，不需要 `APP_ID` 和 `APP_SECRET`。
 - 向飞书上传图片并把图片用于消息卡片：需要 `FEISHU_APP_ID` 和 `FEISHU_APP_SECRET`，服务会用它们获取 tenant access token。
-- 需要同时通知两个机器人时，再填写 `FEISHU_BOT_WEBHOOK_URL_1`。
+- 每个群对应列表中的一个 webhook；添加或删除列表项即可调整转发群。
 
 ### 4. 配置非敏感环境变量
 
