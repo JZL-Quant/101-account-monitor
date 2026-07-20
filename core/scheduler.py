@@ -59,6 +59,12 @@ class MonitorScheduler:
         if self._run_daily_on_startup:
             await self._safe_run("startup daily tasks", self._run_task_type("daily"))
             self._last_daily_run_date = datetime.now().date()
+        else:
+            # Disabling startup reports also disables catch-up reports after the
+            # configured daily time. The next report will run on the next day.
+            now = datetime.now()
+            if (now.hour, now.minute) >= (self._daily_hour, self._daily_minute):
+                self._last_daily_run_date = now.date()
 
         self._log("info", "scheduler started")
         while True:

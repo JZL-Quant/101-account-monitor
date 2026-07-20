@@ -147,7 +147,7 @@ GRAFANA_PASSWORD = ""
 | `RUNTIME_LOG_LEVEL` | `WARNING` | 运行日志级别 |
 | `BINANCE_DAILY_HOUR` | `10` | 每日任务执行小时 |
 | `BINANCE_DAILY_MINUTE` | `31` | 每日任务执行分钟 |
-| `BINANCE_RUN_DAILY_ON_STARTUP` | `1` | 启动时是否执行日报任务 |
+| `BINANCE_RUN_DAILY_ON_STARTUP` | `0` | 启动时是否执行日报任务；设为 `0` 时，若当天日报时间已过，重启也不会补发 |
 | `LARGE_EQUITY_CHANGE_USDT_THRESHOLD` | `100` | 分钟级大额资金变动告警的 USDT 阈值 |
 | `LARGE_EQUITY_CHANGE_BTC_THRESHOLD` | `1` | 分钟级大额资金变动告警的 BTC 阈值 |
 | `GRAFANA_URL` | `http://127.0.0.1:3000` | Grafana 地址 |

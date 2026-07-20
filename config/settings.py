@@ -64,7 +64,7 @@ MONITOR_NAV_PORT = int(os.getenv("MONITOR_NAV_PORT", "7007"))
 
 DAILY_HOUR = int(os.getenv("BINANCE_DAILY_HOUR", "10"))
 DAILY_MINUTE = int(os.getenv("BINANCE_DAILY_MINUTE", "31"))
-RUN_DAILY_ON_STARTUP = os.getenv("BINANCE_RUN_DAILY_ON_STARTUP", "1") == "1"
+RUN_DAILY_ON_STARTUP = os.getenv("BINANCE_RUN_DAILY_ON_STARTUP", "0") == "0"
 
 # 分钟级大额资金变动告警阈值。
 LARGE_EQUITY_CHANGE_THRESHOLDS = {
@@ -78,7 +78,7 @@ DEFAULT_RUNTIME_LOG_LEVEL = os.getenv("RUNTIME_LOG_LEVEL", "WARNING")
 MIN_VALID_CALCULATION_VALUE = 1e-7
 
 # 单个运行日志最大 100 MiB；达到上限后按当前时间切换新文件。
-MAX_RUNTIME_LOG_BYTES = 100 * 1024 * 1024
+MAX_RUNTIME_LOG_BYTES = 1024 * 1024 * 1024
 
 
 def logger_level(log_name: str) -> str:
