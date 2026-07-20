@@ -69,8 +69,8 @@ RUN_DAILY_ON_STARTUP = os.getenv("BINANCE_RUN_DAILY_ON_STARTUP", "0") == "1"
 
 # 分钟级大额资金变动告警阈值。
 LARGE_EQUITY_CHANGE_THRESHOLDS = {
-    "USDT": float(os.getenv("LARGE_EQUITY_CHANGE_USDT_THRESHOLD", "3000")),
-    "BTC": float(os.getenv("LARGE_EQUITY_CHANGE_BTC_THRESHOLD", "1")),
+    "USDT": float(os.getenv("LARGE_EQUITY_CHANGE_USDT_THRESHOLD", "12000")),
+    "BTC": float(os.getenv("LARGE_EQUITY_CHANGE_BTC_THRESHOLD", "2")),
 }
 
 DEFAULT_RUNTIME_LOG_LEVEL = os.getenv("RUNTIME_LOG_LEVEL", "WARNING")
