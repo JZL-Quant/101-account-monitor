@@ -64,7 +64,8 @@ MONITOR_NAV_PORT = int(os.getenv("MONITOR_NAV_PORT", "7007"))
 
 DAILY_HOUR = int(os.getenv("BINANCE_DAILY_HOUR", "10"))
 DAILY_MINUTE = int(os.getenv("BINANCE_DAILY_MINUTE", "31"))
-RUN_DAILY_ON_STARTUP = os.getenv("BINANCE_RUN_DAILY_ON_STARTUP", "0") == "0"
+# "1" means enabled; "0" (the default) means no report on startup.
+RUN_DAILY_ON_STARTUP = os.getenv("BINANCE_RUN_DAILY_ON_STARTUP", "0") == "1"
 
 # 分钟级大额资金变动告警阈值。
 LARGE_EQUITY_CHANGE_THRESHOLDS = {
