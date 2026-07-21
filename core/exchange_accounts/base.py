@@ -90,6 +90,9 @@ class BaseExchangeAccount(ABC):
         self.exchange_id = self.exchange.lower()
         self._latest_total_unit = None
         self._snapshot_schema_checked = False
+        # Snapshot appends and historical fund-event rewrites both update the
+        # CSV and the in-memory unit cache. Keep them in one critical section.
+        self._snapshot_lock = asyncio.Lock()
 
         exchange_label = re.sub(r"\W+", "_", self.exchange[:1].upper() + self.exchange[1:]).strip("_")
         exchange_label = exchange_label or "Exchange"
@@ -213,10 +216,13 @@ class BaseExchangeAccount(ABC):
         )
 
     async def get_net_value(self):
-        total_unit = self.get_latest_total_unit()
         try:
             actual_equity = await self.get_actual_equity()
-            self.record_minute_snapshot(actual_equity, total_unit)
+            # A fund event may change the unit while the network request is in
+            # flight, so read it only after the request has completed.
+            async with self._snapshot_lock:
+                total_unit = self.get_latest_total_unit()
+                self.record_minute_snapshot(actual_equity, total_unit)
         except Exception:
             RUNTIME_LOGGER.exception("[%s] 获取净值失败", self.name)
 
@@ -271,6 +277,10 @@ class BaseExchangeAccount(ABC):
         return await self.handle_outflow(withdrawal_date, withdrawal_amount, "withdraw_amount", "赎回")
 
     async def handle_fund_changes(self, changes):
+        async with self._snapshot_lock:
+            return await self._handle_fund_changes_locked(changes)
+
+    async def _handle_fund_changes_locked(self, changes):
         """Apply incremental fund classifications at explicit snapshot timestamps."""
         if not changes:
             raise ValueError("没有需要保存的资金变动")
@@ -367,6 +377,10 @@ class BaseExchangeAccount(ABC):
         return results
 
     async def handle_outflow(self, event_date, amount, csv_column, action_label):
+        async with self._snapshot_lock:
+            return await self._handle_outflow_locked(event_date, amount, csv_column, action_label)
+
+    async def _handle_outflow_locked(self, event_date, amount, csv_column, action_label):
         if amount <= 0:
             raise ValueError(f"{action_label}金额必须大于 0")
 
@@ -431,6 +445,10 @@ class BaseExchangeAccount(ABC):
         return event_time
 
     async def handle_subscription_pro(self, subscription_date, subscription_amount):
+        async with self._snapshot_lock:
+            return await self._handle_subscription_locked(subscription_date, subscription_amount)
+
+    async def _handle_subscription_locked(self, subscription_date, subscription_amount):
         if subscription_amount <= 0:
             raise ValueError("申购金额必须大于 0")
 
