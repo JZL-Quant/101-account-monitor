@@ -29,6 +29,10 @@ LOGGER = logging.getLogger(__name__)
 
 
 def register_routes(app, templates):
+    # 已停用的旧版单项资金事件 API，保留源码仅用于历史参考。
+    # 当前方案统一使用 POST /api/accounts/{account_name}/equity-changes，以明确的
+    # 快照时间批量保存申购、分红、除息和赎回。
+    '''
     @app.post("/subscribe")
     async def subscribe(req: SubscriptionRequest):
         if req.account_name not in state.accounts:
@@ -144,6 +148,7 @@ def register_routes(app, templates):
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"赎回失败: {exc}")
         return state.account_response(account_name, "赎回", withdrawal_amount, withdrawal_date)
+    '''
 
     @app.get("/")
     async def read_root(request: Request):

@@ -236,6 +236,9 @@ class BaseExchangeAccount(ABC):
         next_minute = (now + timedelta(minutes=1)).replace(second=0, microsecond=0)
         await asyncio.sleep((next_minute - now).total_seconds())
 
+    # 已停用的旧版单项资金事件实现，保留源码仅用于历史参考。
+    # 当前方案统一由 handle_fund_changes 按精确快照时间批量回写。
+    '''
     def update_post_event_net_values(self, event_time, new_total_unit):
         try:
             if not is_valid_calculation_value(new_total_unit, denominator=True):
@@ -267,6 +270,9 @@ class BaseExchangeAccount(ABC):
         except Exception:
             RUNTIME_LOGGER.exception("[%s] ❌ 更新分红/申购后净值失败", self.name)
 
+    # 以下三个单项流出入口仅供旧版 /dividend、/interest_deduction、/withdrawal
+    # API 兼容使用。当前网页不会调用它们，而是把同一批资金变动统一提交给
+    # handle_fund_changes；删除旧路由后可连同 handle_outflow 一起移除。
     async def handle_dividend_pro(self, dividend_date, dividend_amount):
         return await self.handle_outflow(dividend_date, dividend_amount, "dividend_amount", "分红")
 
@@ -275,8 +281,10 @@ class BaseExchangeAccount(ABC):
 
     async def handle_withdrawal_pro(self, withdrawal_date, withdrawal_amount):
         return await self.handle_outflow(withdrawal_date, withdrawal_amount, "withdraw_amount", "赎回")
+    '''
 
     async def handle_fund_changes(self, changes):
+        """当前网页使用的资金变动统一入口，按明确的快照时间批量处理事件。"""
         async with self._snapshot_lock:
             return await self._handle_fund_changes_locked(changes)
 
@@ -376,7 +384,11 @@ class BaseExchangeAccount(ABC):
         self._latest_total_unit = float(pd.to_numeric(df.iloc[-1]["total_unit"], errors="raise"))
         return results
 
+    # 已停用的旧版单项流出/申购实现。对应路由也已停用；当前方案统一使用
+    # handle_fund_changes，避免按“当日最大净值变化”猜测事件时间。
+    '''
     async def handle_outflow(self, event_date, amount, csv_column, action_label):
+        """兼容旧版单项流出 API；当前网页已改用 handle_fund_changes。"""
         async with self._snapshot_lock:
             return await self._handle_outflow_locked(event_date, amount, csv_column, action_label)
 
@@ -445,6 +457,7 @@ class BaseExchangeAccount(ABC):
         return event_time
 
     async def handle_subscription_pro(self, subscription_date, subscription_amount):
+        """兼容旧版申购 API；当前网页已改用 handle_fund_changes。"""
         async with self._snapshot_lock:
             return await self._handle_subscription_locked(subscription_date, subscription_amount)
 
@@ -502,3 +515,4 @@ class BaseExchangeAccount(ABC):
 
         self.update_post_event_net_values(subscription_time, new_total_unit)
         return subscription_time
+    '''
