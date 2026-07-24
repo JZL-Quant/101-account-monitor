@@ -44,14 +44,6 @@ class ExposureService:
         await self.repository.initialize()
         await self.client.start()
         self._latest = await self.repository.latest_success()
-        try:
-            account_mode = await self.client.validate_credentials()
-            LOGGER.info("KuCoin credentials validated (%s)", account_mode)
-        except Exception as exc:
-            # Keep the local login/status page available while credentials or
-            # network access are being configured.
-            LOGGER.exception("Initial KuCoin credential validation failed")
-            await self.repository.save_failure(str(exc))
 
     async def close(self):
         await self.client.close()
@@ -203,37 +195,27 @@ class ExposureService:
 
     async def preview_close(self, asset: str) -> dict[str, Any]:
         asset = normalize_asset(asset, self.config.hedge.aliases)
-        (
-            _balances,
-            positions,
-            _symbols,
-            rows,
-            _account,
-        ) = await self._fetch_state()
-        row = next((item for item in rows if item.asset == asset), None)
+        # 预览只读取最后一次成功快照，不额外消耗 KuCoin REST 配额。
+        latest = await self.latest()
+        row = next(
+            (item for item in latest.get("hedges", []) if item["asset"] == asset),
+            None,
+        )
         if row is None:
             raise ValueError(f"{asset} 当前没有现货或合约敞口")
-        asset_positions = [
-            position
-            for position in positions
-            if normalize_asset(
-                position.base_currency, self.config.hedge.aliases
-            )
-            == asset
-        ]
-        return json_ready(
-            {
-                "asset": asset,
-                "spot_qty": row.spot_qty,
-                "spot_trade_available": row.spot_trade_available,
-                "futures_qty": row.futures_qty,
-                "net_qty": row.net_qty,
-                "net_value": row.net_value,
-                "spot_symbol": row.spot_symbol,
-                "futures_symbols": [position.symbol for position in asset_positions],
-                "warning": "将卖出可交易现货，并平掉该币种的全部 Futures 仓位。",
-            }
-        )
+        return {
+            "asset": asset,
+            "spot_qty": row["spot_qty"],
+            "spot_trade_available": row["spot_trade_available"],
+            "futures_qty": row["futures_qty"],
+            "net_qty": row["net_qty"],
+            "net_value": row["net_value"],
+            "spot_symbol": row["spot_symbol"],
+            "futures_symbols": row["futures_symbols"],
+            "sampled_at": latest.get("sampled_at"),
+            "stale": latest.get("stale", True),
+            "warning": "预览来自最近快照；确认后会重新查询并按最新数量平仓。",
+        }
 
     async def close_both_sides(self, asset: str, username: str) -> dict[str, Any]:
         if not self.config.trading.enabled:
@@ -264,20 +246,57 @@ class ExposureService:
                 request_record.update(json_ready(row))
 
                 if self.config.trading.cancel_open_orders_before_close:
-                    cancel_jobs = []
-                    cancel_names = []
+                    cancel_targets: list[tuple[str, str, str]] = []
                     if row.spot_symbol:
-                        cancel_jobs.append(
-                            self.client.cancel_spot_orders(row.spot_symbol)
+                        cancel_targets.append(
+                            (f"spot:{row.spot_symbol}", row.spot_symbol, "SPOT")
                         )
-                        cancel_names.append(f"spot:{row.spot_symbol}")
                     for symbol in sorted(
                         {position.symbol for position in asset_positions}
                     ):
-                        cancel_jobs.append(
-                            self.client.cancel_futures_orders(symbol)
+                        cancel_targets.append(
+                            (f"futures:{symbol}", symbol, "FUTURES")
                         )
-                        cancel_names.append(f"futures:{symbol}")
+
+                    open_order_checks = await asyncio.gather(
+                        *(
+                            self.client.has_open_orders(symbol, trade_type)
+                            for _name, symbol, trade_type in cancel_targets
+                        ),
+                        return_exceptions=True,
+                    )
+                    cancel_jobs = []
+                    cancel_names = []
+                    check_failures = []
+                    for target, has_orders in zip(
+                        cancel_targets, open_order_checks
+                    ):
+                        name, symbol, trade_type = target
+                        if isinstance(has_orders, Exception):
+                            check_failures.append(f"{name}: {has_orders}")
+                            continue
+                        if not has_orders:
+                            result["cancel"].append(
+                                {
+                                    "leg": name,
+                                    "ok": True,
+                                    "skipped": True,
+                                    "result": "没有普通活动委托，无需撤单",
+                                }
+                            )
+                            continue
+                        cancel_names.append(name)
+                        cancel_jobs.append(
+                            self.client.cancel_spot_orders(symbol)
+                            if trade_type == "SPOT"
+                            else self.client.cancel_futures_orders(symbol)
+                        )
+
+                    if check_failures:
+                        raise ValueError(
+                            "无法确认活动委托，已停止双边平仓："
+                            + "; ".join(check_failures)
+                        )
                     cancel_results = await asyncio.gather(
                         *cancel_jobs, return_exceptions=True
                     )

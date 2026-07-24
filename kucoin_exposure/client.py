@@ -166,10 +166,9 @@ class KucoinClient:
             else ""
         )
         session = await self._get_session()
-        # GET 和 cancel-all 都是可安全重复的；真实下单绝不自动重试，
-        # 防止响应丢失时生成重复成交。
-        retry_rate_limit = method.upper() == "GET" or path.endswith("/cancel-all")
-        max_attempts = 4 if retry_rate_limit else 1
+        # 监控与实际交易程序在不同服务器但共用同一 UID/API Key。监控端
+        # 遇到限频必须主动让路，不重试争抢额度；真实下单也绝不自动重试。
+        max_attempts = 1
         for attempt in range(max_attempts):
             headers = (
                 self._private_headers(method, endpoint, body_text)
@@ -199,35 +198,17 @@ class KucoinClient:
                 ) from exc
 
             code = str(payload.get("code", ""))
-            if (
-                code == "429000"
-                and retry_rate_limit
-                and attempt + 1 < max_attempts
-            ):
-                reset_text = response_headers.get("gw-ratelimit-reset", "")
-                try:
-                    reset_seconds = max(0.0, float(reset_text) / 1000)
-                except (TypeError, ValueError):
-                    reset_seconds = 0.0
-                # 正常配额耗尽按响应头等待；服务过载没有响应头时逐步退避。
-                delay = (
-                    min(reset_seconds, 30.0) + 0.25
-                    if reset_seconds
-                    else 3.0 * (2**attempt)
-                )
-                if self.logger:
-                    self.logger.warning(
-                        "KuCoin rate limit for %s; retry %s/%s in %.2fs",
-                        path,
-                        attempt + 1,
-                        max_attempts - 1,
-                        delay,
-                    )
-                await asyncio.sleep(delay)
-                continue
-
             if response.status >= 400 or code != "200000":
                 message = str(payload.get("msg") or payload.get("message") or text)
+                if code == "429000" and self.logger:
+                    self.logger.warning(
+                        "KuCoin rate limit; monitor yields without retry for %s "
+                        "(limit=%s remaining=%s reset_ms=%s)",
+                        path,
+                        response_headers.get("gw-ratelimit-limit", "?"),
+                        response_headers.get("gw-ratelimit-remaining", "?"),
+                        response_headers.get("gw-ratelimit-reset", "?"),
+                    )
                 raise KucoinAPIError(
                     f"KuCoin error {code or response.status}: {message}",
                     code=code,
@@ -397,6 +378,7 @@ class KucoinClient:
             )
         return positions
 
+
     async def fetch_futures_account(self, currency: str) -> dict[str, Any]:
         return await self._request(
             "GET",
@@ -419,6 +401,23 @@ class KucoinClient:
             body=body,
             order_request=True,
         )
+
+    async def has_open_orders(self, symbol: str, trade_type: str) -> bool:
+        data = await self._request(
+            "GET",
+            UTA_BASE_URL,
+            "/api/ua/v1/unified/order/open-list",
+            params={
+                "tradeType": trade_type,
+                "symbol": symbol,
+                "orderFilter": "NORMAL",
+                "pageNumber": 1,
+                "pageSize": 1,
+            },
+        )
+        if isinstance(data, list):
+            return bool(data)
+        return bool((data or {}).get("items", []))
 
     async def cancel_spot_orders(self, symbol: str) -> Any:
         return await self._cancel_orders(symbol, "SPOT")
