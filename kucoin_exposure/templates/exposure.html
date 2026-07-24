@@ -267,8 +267,12 @@ document.getElementById('closeAllButton').addEventListener('click', closeAll);
 document.getElementById('refreshButton').addEventListener('click', async event => {
     event.target.disabled = true;
     try {
+        message.className = 'warn';
+        message.textContent = '正在向 KuCoin 查询最新余额和持仓…';
         await api('/api/kucoin/exposure/refresh', {method: 'POST', headers: {'X-CSRF-Token': csrf}});
         await load();
+        message.className = 'good';
+        message.textContent = '已从 KuCoin 获取最新数据';
     } catch (error) { message.className = 'bad'; message.textContent = error.message; }
     finally { event.target.disabled = false; }
 });

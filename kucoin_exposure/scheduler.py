@@ -14,7 +14,9 @@ async def run_refresh_loop(
 ) -> None:
     while True:
         try:
-            await service.refresh()
+            # 定时任务不排队，避免手动刷新或交易后的校验仍在执行时
+            # 紧接着再占用一轮 KuCoin REST 配额。
+            await service.refresh(skip_if_running=True)
         except asyncio.CancelledError:
             raise
         except Exception:

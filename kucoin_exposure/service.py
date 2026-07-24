@@ -139,10 +139,10 @@ class ExposureService:
         }
         return json_ready(payload)
 
-    async def refresh(self) -> dict[str, Any]:
+    async def refresh(self, *, skip_if_running: bool = False) -> dict[str, Any]:
         if self._refresh_lock is None:
             raise RuntimeError("ExposureService has not been started")
-        if self._refresh_lock.locked():
+        if skip_if_running and self._refresh_lock.locked():
             LOGGER.warning("Skipping overlapping KuCoin exposure refresh")
             return self._latest or {"status": "refresh_in_progress"}
         async with self._refresh_lock:
