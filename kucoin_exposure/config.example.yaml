@@ -1,0 +1,62 @@
+# 独立网页服务的监听地址。
+server:
+  # 127.0.0.1 表示只有本机能访问；如需局域网访问可改成 0.0.0.0。
+  host: 127.0.0.1
+  # 与现有 account_monitor 的 7007 分开，第一版固定使用 8000。
+  port: 8000
+
+# 登录的是我们开发的本地网页，不是登录 KuCoin 官网。
+login:
+  # 页面登录用户名。
+  username: admin
+  # 页面登录密码，以明文保存在本机配置中，请勿提交到 Git。
+  password: change_me
+  # Cookie 签名密钥，至少 24 个字符。设置后不要频繁修改，否则已登录状态会失效。
+  session_secret: replace_with_a_random_string_at_least_24_chars
+  # 登录 Cookie 的有效天数；服务重启不会使 Cookie 失效。
+  session_days: 30
+
+# 当前 KuCoin 子账户的 API 凭证，只在后端使用，不会发送到浏览器。
+kucoin:
+  # KuCoin 创建 API 时得到的 Key。
+  api_key: ""
+  # KuCoin 创建 API 时得到的 Secret。
+  api_secret: ""
+  # 创建 API 时由用户填写的 Passphrase，不是 KuCoin 登录密码。
+  api_passphrase: ""
+  # 本项目固定使用 UTA 接口及 V3 签名；这里不需要填写 API Key Version。
+  # KuCoin 站点区域；普通国际站保持 global。
+  site_type: global
+
+# 后台敞口采集任务。
+monitor:
+  # 自动查询现货和合约的间隔秒数，代码允许的最小值是 10 秒。
+  interval_seconds: 60
+  # 最后成功数据超过多少秒后，页面显示“已过期”；最小值是 30 秒。
+  stale_after_seconds: 180
+
+# 现货与合约的对冲判定规则。
+hedge:
+  # 统一计价币种。第一版按 USDT 现货交易对和 USDT Futures 设计。
+  quote_currency: USDT
+  # 偏差率不超过此值时显示“已对冲”。
+  matched_threshold_percent: 1
+  # 高于已对冲阈值但不超过此值时显示“轻微偏多/偏空”。
+  warning_threshold_percent: 5
+  # 净敞口价值低于此 USDT 金额时按灰尘余额处理，显示“已对冲”。
+  dust_value_usdt: 1
+
+# KuCoin 现货和合约可能使用不同的币种代码，在这里统一。
+symbols:
+  aliases:
+    # KuCoin BTC 合约常使用 XBT，而现货使用 BTC。
+    XBT: BTC
+
+# 真实交易总开关和双边平仓行为。
+trading:
+  # false 时只查询，按钮禁用；true 时允许真实撤单和真实市价平仓。
+  enabled: false
+  # 双边平仓前是否先撤销对应交易对/合约的普通活动委托。
+  cancel_open_orders_before_close: true
+  # 下单后等待多少秒再重新查询现货和合约，用于判断是否完全平仓。
+  verification_delay_seconds: 1.5

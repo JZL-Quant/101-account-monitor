@@ -45,6 +45,11 @@ Binance_monitor_merged_test_llj/minute_snapshots/*
 all_accounts_annualized*.csv
 backfill_output/
 
+# Standalone KuCoin exposure monitor secrets/runtime state
+kucoin_exposure/config.yaml
+kucoin_exposure/runtime_data/
+kucoin_exposure/runtime_logs/
+
 # OS files
 .DS_Store
 Thumbs.db
