@@ -39,6 +39,7 @@
         <span class="muted">用户：{{ username }}</span>
     </div>
     <div>
+        <button id="closeAllButton" class="danger" disabled>全部平仓</button>
         <button id="refreshButton">立即刷新</button>
         <button id="logoutButton">退出</button>
     </div>
@@ -101,6 +102,17 @@ function n(value, digits = 6) {
         ? number.toLocaleString('zh-CN', { maximumFractionDigits: digits })
         : '-';
 }
+function q(value) {
+    const number = Number(value || 0);
+    if (!Number.isFinite(number)) return '-';
+    if (number !== 0 && Math.abs(number) < 1e-12) {
+        return number.toExponential(8);
+    }
+    return number.toLocaleString('zh-CN', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 12
+    });
+}
 function statusClass(status) {
     if (status === '已对冲') return 'good';
     if (status.includes('轻微')) return 'warn';
@@ -126,6 +138,7 @@ async function api(url, options = {}) {
 }
 function render(data) {
     latestData = data;
+    document.getElementById('closeAllButton').disabled = !data.trading_enabled;
     const s = data.summary || {};
     document.getElementById('summary').innerHTML = `
         <div><span>Futures账户权益</span><strong>${n(s.account_equity, 2)} USDT</strong></div>
@@ -141,8 +154,8 @@ function render(data) {
 
     document.getElementById('hedges').innerHTML = (data.hedges || []).map(row => `
         <tr>
-            <td>${row.asset}</td><td>${n(row.spot_qty)}</td><td>${n(row.spot_trade_available)}</td>
-            <td>${n(row.futures_qty)}</td><td>${n(row.net_qty)}</td><td>${n(row.net_value, 2)} USDT</td>
+            <td>${row.asset}</td><td>${q(row.spot_qty)}</td><td>${q(row.spot_trade_available)}</td>
+            <td>${q(row.futures_qty)}</td><td>${q(row.net_qty)}</td><td>${n(row.net_value, 4)} USDT</td>
             <td>${n(row.mismatch_percent, 2)}%</td>
             <td class="${statusClass(row.status)}">${row.status}</td>
             <td><button class="danger close-button" data-asset="${row.asset}"
@@ -156,8 +169,8 @@ function render(data) {
     };
     document.getElementById('futures').innerHTML = (data.futures_positions || []).map(row => `
         <tr><td>${row.symbol}</td><td>${row.side === 'long' ? '多' : '空'}</td>
-        <td>${n(Math.abs(Number(row.current_qty)))}</td><td>${n(row.multiplier, 10)} ${exposureAsset(row.symbol) || row.base_currency}/张</td>
-        <td>${n(row.base_qty)} ${exposureAsset(row.symbol) || row.base_currency}</td><td>${n(row.per_contract_mark_value, 4)} USDT</td>
+        <td>${q(Math.abs(Number(row.current_qty)))}</td><td>${q(row.multiplier)} ${exposureAsset(row.symbol) || row.base_currency}/张</td>
+        <td>${q(row.base_qty)} ${exposureAsset(row.symbol) || row.base_currency}</td><td>${n(row.per_contract_mark_value, 4)} USDT</td>
         <td>${n(row.avg_entry_price, 4)}</td>
         <td>${n(row.mark_price, 4)}</td><td>${n(row.mark_value, 2)} USDT</td>
         <td class="${row.conversion_ok ? 'good' : 'bad'}">${row.conversion_ok ? '通过' : '异常'}</td>
@@ -166,9 +179,9 @@ function render(data) {
     ).join('') || '<tr><td colspan="15">暂无合约持仓</td></tr>';
 
     document.getElementById('spot').innerHTML = (data.spot_balances || []).map(row => `
-        <tr><td>${row.currency}</td><td>${row.account_type}</td><td>${n(row.balance)}</td>
-        <td>${n(row.liability)}</td><td>${n(Number(row.balance) - Number(row.liability))}</td>
-        <td>${n(row.equity)}</td><td>${n(row.available)}</td><td>${n(row.holds)}</td></tr>`
+        <tr><td>${row.currency}</td><td>${row.account_type}</td><td>${q(row.balance)}</td>
+        <td>${q(row.liability)}</td><td>${q(Number(row.balance) - Number(row.liability))}</td>
+        <td>${q(row.equity)}</td><td>${q(row.available)}</td><td>${q(row.holds)}</td></tr>`
     ).join('') || '<tr><td colspan="8">暂无现货余额</td></tr>';
 
     document.getElementById('actions').innerHTML = (data.actions || []).map(row => `
@@ -189,8 +202,8 @@ async function closeBoth(asset, button) {
     try {
         const p = await api(`/api/kucoin/exposure/${encodeURIComponent(asset)}/close-preview`);
         const text = `将同时处理 ${asset} 两侧：\n\n`
-            + `现货总量：${n(p.spot_qty)}\n可直接卖出现货：${n(p.spot_trade_available)}\n`
-            + `合约币数量：${n(p.futures_qty)}\n当前净敞口：${n(p.net_qty)}\n\n`
+            + `现货总量：${q(p.spot_qty)}\n可直接卖出现货：${q(p.spot_trade_available)}\n`
+            + `合约币数量：${q(p.futures_qty)}\n当前净敞口：${q(p.net_qty)}\n\n`
             + `将市价卖出可交易现货，并平掉全部相关 Futures 仓位。\n`
             + `普通活动委托会先撤销；请另行确认条件单/止损单。确认执行？`;
         if (!confirm(text)) return;
@@ -210,6 +223,47 @@ async function closeBoth(asset, button) {
         await load();
     } finally { button.disabled = false; }
 }
+async function closeAll() {
+    const button = document.getElementById('closeAllButton');
+    const assets = (latestData?.hedges || [])
+        .filter(row => Math.abs(Number(row.spot_qty || 0)) > 0
+            || Math.abs(Number(row.futures_qty || 0)) > 0)
+        .map(row => row.asset);
+    if (!assets.length) {
+        message.className = 'good';
+        message.textContent = '当前没有需要平仓的资产';
+        return;
+    }
+    const text = `即将全部平仓：${assets.join(', ')}\n\n`
+        + `程序会逐个币种卖出可交易现货，并对全部相关 Futures 仓位提交 reduce-only 市价平仓。\n`
+        + `普通活动委托会先检查并撤销；单个币种失败后仍会继续处理其他币种。\n\n`
+        + `这是不可撤销的真实交易，确认执行？`;
+    if (!confirm(text)) return;
+    button.disabled = true;
+    document.querySelectorAll('.close-button').forEach(item => item.disabled = true);
+    message.className = 'warn';
+    message.textContent = '全部平仓执行中，请勿关闭页面或重复操作……';
+    try {
+        const result = await api('/api/kucoin/exposure/close-all', {
+            method: 'POST', headers: {'X-CSRF-Token': csrf}
+        });
+        const failed = (result.results || [])
+            .filter(item => !item.ok)
+            .map(item => `${item.asset}: ${item.error || '仍有残余'}`);
+        message.className = result.status === 'complete' ? 'good' : 'bad';
+        message.textContent = result.status === 'complete'
+            ? `全部平仓完成：${(result.assets || []).join(', ')}`
+            : `部分币种未完成：\n${failed.join('\n')}`;
+        await load();
+    } catch (error) {
+        message.className = 'bad';
+        message.textContent = `全部平仓失败：${error.message}`;
+        await load();
+    } finally {
+        button.disabled = !(latestData?.trading_enabled);
+    }
+}
+document.getElementById('closeAllButton').addEventListener('click', closeAll);
 document.getElementById('refreshButton').addEventListener('click', async event => {
     event.target.disabled = true;
     try {

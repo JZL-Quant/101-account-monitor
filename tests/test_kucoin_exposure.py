@@ -100,6 +100,31 @@ class CalculatorTests(unittest.TestCase):
         self.assertEqual(error, Decimal("900"))
         self.assertFalse(ok)
 
+    def test_dust_exposure_has_zero_displayed_mismatch(self):
+        balances = [
+            SpotBalance(
+                currency="BTC",
+                account_type="unified",
+                balance=Decimal("0.00000015"),
+                available=Decimal("0.00000015"),
+                holds=Decimal("0"),
+            )
+        ]
+        rows = build_hedge_rows(
+            balances,
+            [],
+            {},
+            {"BTC": Decimal("66000")},
+            aliases={"XBT": "BTC"},
+            quote_currency="USDT",
+            matched_threshold_percent=1,
+            warning_threshold_percent=5,
+            dust_value_usdt=1,
+        )
+        self.assertEqual(rows[0].net_value, Decimal("0.00990000"))
+        self.assertEqual(rows[0].mismatch_percent, Decimal("0"))
+        self.assertEqual(rows[0].status, "已对冲")
+
 
 class AuthTests(unittest.TestCase):
     def test_signed_session_survives_until_expiry(self):

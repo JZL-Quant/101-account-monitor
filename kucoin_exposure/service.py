@@ -35,11 +35,13 @@ class ExposureService:
         self.repository = repository
         # create_app() 在 uvicorn event loop 启动前运行，锁延迟到 start()。
         self._refresh_lock: asyncio.Lock | None = None
+        self._trade_lock: asyncio.Lock | None = None
         self._asset_locks: dict[str, asyncio.Lock] = {}
         self._latest: dict[str, Any] | None = None
 
     async def start(self):
         self._refresh_lock = asyncio.Lock()
+        self._trade_lock = asyncio.Lock()
         self._asset_locks.clear()
         await self.repository.initialize()
         await self.client.start()
@@ -48,6 +50,7 @@ class ExposureService:
     async def close(self):
         await self.client.close()
         self._refresh_lock = None
+        self._trade_lock = None
         self._asset_locks.clear()
 
     def _asset_lock(self, asset: str) -> asyncio.Lock:
@@ -217,9 +220,26 @@ class ExposureService:
             "warning": "预览来自最近快照；确认后会重新查询并按最新数量平仓。",
         }
 
-    async def close_both_sides(self, asset: str, username: str) -> dict[str, Any]:
+    async def close_both_sides(
+        self,
+        asset: str,
+        username: str,
+        *,
+        _operation_locked: bool = False,
+    ) -> dict[str, Any]:
         if not self.config.trading.enabled:
             raise PermissionError("config.yaml 中 trading.enabled 尚未启用")
+        if self._trade_lock is None:
+            raise RuntimeError("ExposureService has not been started")
+        if not _operation_locked:
+            if self._trade_lock.locked():
+                raise ValueError("已有平仓操作正在执行，请勿重复提交")
+            async with self._trade_lock:
+                return await self.close_both_sides(
+                    asset,
+                    username,
+                    _operation_locked=True,
+                )
         asset = normalize_asset(asset, self.config.hedge.aliases)
         async with self._asset_lock(asset):
             request_record: dict[str, Any] = {"asset": asset}
@@ -337,7 +357,7 @@ class ExposureService:
                         request=request_record,
                         result=result,
                     )
-                    return result
+                    return {"status": "complete", **result}
 
                 asset_positions = [
                     position
@@ -456,3 +476,69 @@ class ExposureService:
                     error_message=str(exc),
                 )
                 raise
+
+    async def close_all(self, username: str) -> dict[str, Any]:
+        if not self.config.trading.enabled:
+            raise PermissionError("config.yaml 中 trading.enabled 尚未启用")
+        if self._trade_lock is None:
+            raise RuntimeError("ExposureService has not been started")
+        if self._trade_lock.locked():
+            raise ValueError("已有平仓操作正在执行，请勿重复提交")
+
+        async with self._trade_lock:
+            latest = await self.latest()
+            assets = sorted(
+                {
+                    str(row.get("asset", "")).upper()
+                    for row in latest.get("hedges", [])
+                    if row.get("asset")
+                    and (
+                        abs(float(row.get("spot_qty", 0))) > 0
+                        or abs(float(row.get("futures_qty", 0))) > 0
+                    )
+                }
+            )
+            aggregate: dict[str, Any] = {
+                "assets": assets,
+                "results": [],
+            }
+            if not assets:
+                return {"status": "complete", **aggregate}
+
+            for asset in assets:
+                try:
+                    value = await self.close_both_sides(
+                        asset,
+                        username,
+                        _operation_locked=True,
+                    )
+                    aggregate["results"].append(
+                        {
+                            "asset": asset,
+                            "ok": value.get("status") == "complete",
+                            "result": value,
+                        }
+                    )
+                except Exception as exc:
+                    LOGGER.exception("Close-all failed for %s; continuing", asset)
+                    aggregate["results"].append(
+                        {
+                            "asset": asset,
+                            "ok": False,
+                            "error": str(exc),
+                        }
+                    )
+
+            status = (
+                "complete"
+                if all(item["ok"] for item in aggregate["results"])
+                else "partial_or_failed"
+            )
+            await self.repository.save_trade_action(
+                username=username,
+                asset="ALL",
+                status=status,
+                request={"assets": assets},
+                result=aggregate,
+            )
+            return {"status": status, **aggregate}

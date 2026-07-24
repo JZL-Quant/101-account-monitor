@@ -208,6 +208,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.post("/api/kucoin/exposure/close-all")
+    async def close_all(request: Request):
+        session = require_session(request)
+        require_csrf(request, session)
+        try:
+            return await service.close_all(session.username)
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.get("/health")
     async def health():
         return {"status": "ok"}

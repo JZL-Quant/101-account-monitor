@@ -62,6 +62,8 @@ def build_hedge_rows(
         same_direction = spot != ZERO and future != ZERO and (spot > 0) == (future > 0)
 
         if abs(net_value) < dust:
+            # 灰尘余额已按配置忽略，不再显示容易误导的 100% 相对偏差。
+            mismatch = ZERO
             status = "已对冲"
         elif same_direction:
             status = "同向暴露"
