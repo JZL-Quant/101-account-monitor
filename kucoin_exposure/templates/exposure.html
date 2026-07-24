@@ -14,6 +14,9 @@
         h2 { margin-bottom: 10px; font-size: 17px; }
         .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
         .section-heading h2 { margin-bottom: 0; }
+        .record-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+        .record-column { min-width: 0; overflow-x: auto; }
+        .record-column h2 { margin-bottom: 10px; }
         button { padding: 7px 11px; border: 1px solid #9ca3af; border-radius: 5px; background: white; cursor: pointer; }
         button.danger { color: white; border-color: #b91c1c; background: #b91c1c; }
         button:disabled { opacity: .5; cursor: wait; }
@@ -31,7 +34,10 @@
         .bad { color: #b91c1c; }
         #message { min-height: 20px; margin: 8px 0; white-space: pre-wrap; }
         .muted { color: #6b7280; }
-        @media (max-width: 700px) { body { padding: 10px; } }
+        @media (max-width: 900px) {
+            body { padding: 10px; }
+            .record-columns { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
@@ -87,16 +93,31 @@
 
 <section>
     <div class="section-heading">
-        <h2>最近平仓操作 / 本页面交易记录</h2>
+        <h2>操作与交易记录</h2>
         <button id="clearActionsButton">清空记录</button>
     </div>
-    <table>
-        <thead><tr>
-            <th>大致时间</th><th>操作人</th><th>币种</th><th>处理数量</th>
-            <th>下单结果</th><th>状态</th><th>错误</th>
-        </tr></thead>
-        <tbody id="actions"></tbody>
-    </table>
+    <div class="record-columns">
+        <div class="record-column">
+            <h2>最近平仓操作</h2>
+            <table>
+                <thead><tr>
+                    <th>时间</th><th>操作人</th><th>币种</th>
+                    <th>处理数量</th><th>状态</th><th>错误</th>
+                </tr></thead>
+                <tbody id="actions"></tbody>
+            </table>
+        </div>
+        <div class="record-column">
+            <h2>本页面交易记录</h2>
+            <table>
+                <thead><tr>
+                    <th>时间</th><th>市场</th><th>交易对/合约</th>
+                    <th>方向</th><th>数量</th><th>结果</th>
+                </tr></thead>
+                <tbody id="tradeRecords"></tbody>
+            </table>
+        </div>
+    </div>
 </section>
 
 <script>
@@ -160,14 +181,17 @@ function actionQuantity(row) {
     }
     return values.join('；') || '未取得数量';
 }
-function actionOrders(row) {
-    const legs = (row.order_legs || []).map(order => {
-        const market = String(order.leg || '').startsWith('spot:')
-            ? '现货' : '合约';
-        return `${market}${order.ok ? '已提交' : '失败'}`;
-    });
-    if (legs.length) return legs.join('；');
-    return row.status === 'already_flat' ? '无需下单' : '未提交订单';
+function tradeDirection(row, leg) {
+    if (String(leg).startsWith('spot:')) return '卖出';
+    const quantity = Number(row.futures_qty || 0);
+    if (quantity > 0) return '卖出平多';
+    if (quantity < 0) return '买入平空';
+    return '平仓';
+}
+function tradeQuantity(row, leg) {
+    return String(leg).startsWith('spot:')
+        ? q(row.spot_qty)
+        : q(Math.abs(Number(row.futures_qty || 0)));
 }
 async function api(url, options = {}) {
     const response = await fetch(url, { credentials: 'same-origin', ...options });
@@ -237,11 +261,25 @@ function render(data) {
     document.getElementById('actions').innerHTML = (data.actions || []).map(row => `
         <tr><td>${approximateTime(row.created_at)}</td><td>${row.username}</td>
         <td>${row.asset === 'ALL' ? '全部平仓' : row.asset}</td>
-        <td>${actionQuantity(row)}</td><td>${actionOrders(row)}</td>
+        <td>${actionQuantity(row)}</td>
         <td class="${row.status === 'complete' || row.status === 'already_flat' ? 'good' : 'bad'}">
             ${actionStatus(row.status)}</td>
         <td class="bad">${row.error_message || ''}</td></tr>`
-    ).join('') || '<tr><td colspan="7">暂无交易记录</td></tr>';
+    ).join('') || '<tr><td colspan="6">暂无平仓操作</td></tr>';
+
+    const trades = (data.actions || []).flatMap(row =>
+        (row.order_legs || []).map(order => ({...order, action: row})));
+    document.getElementById('tradeRecords').innerHTML = trades.map(item => {
+        const row = item.action;
+        const leg = String(item.leg || '');
+        const parts = leg.split(':');
+        return `<tr><td>${approximateTime(row.created_at)}</td>
+            <td>${leg.startsWith('spot:') ? '现货' : '合约'}</td>
+            <td>${parts.slice(1).join(':') || row.asset}</td>
+            <td>${tradeDirection(row, leg)}</td>
+            <td>${tradeQuantity(row, leg)}</td>
+            <td class="${item.ok ? 'good' : 'bad'}">${item.ok ? '已提交' : `失败：${item.error || '-'}`}</td></tr>`;
+    }).join('') || '<tr><td colspan="6">暂无本页面交易</td></tr>';
 
     document.querySelectorAll('.close-button').forEach(button => {
         button.addEventListener('click', () => closeBoth(button.dataset.asset, button));
