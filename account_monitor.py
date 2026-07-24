@@ -698,7 +698,7 @@ def start_monitor_scheduler():
     scheduler = MonitorScheduler(RUNTIME_LOGGER)
     scheduler.add_task("startup", update_bigquery_returns)
     scheduler.add_task("minute", update_metrics)
-    scheduler.add_task("minute", check_large_equity_changes)
+    # scheduler.add_task("minute", check_large_equity_changes)
     scheduler.add_task("daily", update_annualized_metrics)
     return scheduler
 
