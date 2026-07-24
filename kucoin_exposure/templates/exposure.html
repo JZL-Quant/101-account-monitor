@@ -12,6 +12,8 @@
         h1, h2 { margin: 0; }
         h1 { font-size: 22px; }
         h2 { margin-bottom: 10px; font-size: 17px; }
+        .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+        .section-heading h2 { margin-bottom: 0; }
         button { padding: 7px 11px; border: 1px solid #9ca3af; border-radius: 5px; background: white; cursor: pointer; }
         button.danger { color: white; border-color: #b91c1c; background: #b91c1c; }
         button:disabled { opacity: .5; cursor: wait; }
@@ -84,9 +86,15 @@
 </section>
 
 <section>
-    <h2>最近平仓操作</h2>
+    <div class="section-heading">
+        <h2>最近平仓操作 / 本页面交易记录</h2>
+        <button id="clearActionsButton">清空记录</button>
+    </div>
     <table>
-        <thead><tr><th>时间</th><th>币种</th><th>状态</th><th>错误</th></tr></thead>
+        <thead><tr>
+            <th>大致时间</th><th>操作人</th><th>币种</th><th>处理数量</th>
+            <th>下单结果</th><th>状态</th><th>错误</th>
+        </tr></thead>
         <tbody id="actions"></tbody>
     </table>
 </section>
@@ -115,11 +123,51 @@ function q(value) {
 }
 function statusClass(status) {
     if (status === '已对冲') return 'good';
+    if (status === '现货储备') return '';
     if (status.includes('轻微')) return 'warn';
     return 'bad';
 }
 function errorText(error) {
     return error?.detail || error?.message || JSON.stringify(error);
+}
+function approximateTime(value) {
+    const time = new Date(value);
+    if (!Number.isFinite(time.getTime())) return value || '-';
+    return time.toLocaleString('zh-CN', {
+        month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit',
+        hour12: false
+    });
+}
+function actionStatus(value) {
+    return {
+        complete: '完成',
+        already_flat: '无需平仓',
+        partial_or_failed: '部分完成',
+        failed: '失败'
+    }[value] || value || '-';
+}
+function actionQuantity(row) {
+    if (row.asset === 'ALL') {
+        return `共 ${(row.assets || []).length} 个币种`;
+    }
+    const values = [];
+    if (row.spot_qty !== null && row.spot_qty !== undefined) {
+        values.push(`现货 ${q(row.spot_qty)}`);
+    }
+    if (row.futures_qty !== null && row.futures_qty !== undefined) {
+        values.push(`合约 ${q(row.futures_qty)}`);
+    }
+    return values.join('；') || '未取得数量';
+}
+function actionOrders(row) {
+    const legs = (row.order_legs || []).map(order => {
+        const market = String(order.leg || '').startsWith('spot:')
+            ? '现货' : '合约';
+        return `${market}${order.ok ? '已提交' : '失败'}`;
+    });
+    if (legs.length) return legs.join('；');
+    return row.status === 'already_flat' ? '无需下单' : '未提交订单';
 }
 async function api(url, options = {}) {
     const response = await fetch(url, { credentials: 'same-origin', ...options });
@@ -156,10 +204,12 @@ function render(data) {
         <tr>
             <td>${row.asset}</td><td>${q(row.spot_qty)}</td><td>${q(row.spot_trade_available)}</td>
             <td>${q(row.futures_qty)}</td><td>${q(row.net_qty)}</td><td>${n(row.net_value, 4)} USDT</td>
-            <td>${n(row.mismatch_percent, 2)}%</td>
+            <td>${row.excluded_from_hedge ? '—' : `${n(row.mismatch_percent, 2)}%`}</td>
             <td class="${statusClass(row.status)}">${row.status}</td>
-            <td><button class="danger close-button" data-asset="${row.asset}"
-                ${data.trading_enabled ? '' : 'disabled'}>双边平仓</button></td>
+            <td>${row.excluded_from_hedge
+                ? '<span>不参与平仓</span>'
+                : `<button class="danger close-button" data-asset="${row.asset}"
+                    ${data.trading_enabled ? '' : 'disabled'}>双边平仓</button>`}</td>
         </tr>`).join('') || '<tr><td colspan="9">暂无敞口</td></tr>';
 
     const exposureAsset = symbol => {
@@ -185,9 +235,13 @@ function render(data) {
     ).join('') || '<tr><td colspan="8">暂无现货余额</td></tr>';
 
     document.getElementById('actions').innerHTML = (data.actions || []).map(row => `
-        <tr><td>${row.created_at}</td><td>${row.asset}</td><td>${row.status}</td>
+        <tr><td>${approximateTime(row.created_at)}</td><td>${row.username}</td>
+        <td>${row.asset === 'ALL' ? '全部平仓' : row.asset}</td>
+        <td>${actionQuantity(row)}</td><td>${actionOrders(row)}</td>
+        <td class="${row.status === 'complete' || row.status === 'already_flat' ? 'good' : 'bad'}">
+            ${actionStatus(row.status)}</td>
         <td class="bad">${row.error_message || ''}</td></tr>`
-    ).join('') || '<tr><td colspan="4">暂无操作</td></tr>';
+    ).join('') || '<tr><td colspan="7">暂无交易记录</td></tr>';
 
     document.querySelectorAll('.close-button').forEach(button => {
         button.addEventListener('click', () => closeBoth(button.dataset.asset, button));
@@ -226,8 +280,9 @@ async function closeBoth(asset, button) {
 async function closeAll() {
     const button = document.getElementById('closeAllButton');
     const assets = (latestData?.hedges || [])
-        .filter(row => Math.abs(Number(row.spot_qty || 0)) > 0
-            || Math.abs(Number(row.futures_qty || 0)) > 0)
+        .filter(row => !row.excluded_from_hedge
+            && (Math.abs(Number(row.spot_qty || 0)) > 0
+                || Math.abs(Number(row.futures_qty || 0)) > 0))
         .map(row => row.asset);
     if (!assets.length) {
         message.className = 'good';
@@ -264,6 +319,25 @@ async function closeAll() {
     }
 }
 document.getElementById('closeAllButton').addEventListener('click', closeAll);
+document.getElementById('clearActionsButton').addEventListener('click', async event => {
+    if (!confirm('确认清空本页面保存的全部平仓和交易记录？\n\n该操作不会影响 KuCoin 订单，但本地记录无法恢复。')) {
+        return;
+    }
+    event.target.disabled = true;
+    try {
+        const result = await api('/api/kucoin/exposure/actions/clear', {
+            method: 'POST', headers: {'X-CSRF-Token': csrf}
+        });
+        await load();
+        message.className = 'good';
+        message.textContent = `已清空 ${result.deleted || 0} 条本地交易记录`;
+    } catch (error) {
+        message.className = 'bad';
+        message.textContent = `清空记录失败：${error.message}`;
+    } finally {
+        event.target.disabled = false;
+    }
+});
 document.getElementById('refreshButton').addEventListener('click', async event => {
     event.target.disabled = true;
     try {

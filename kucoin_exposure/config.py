@@ -40,12 +40,20 @@ class MonitorConfig:
 
 
 @dataclass(frozen=True)
+class FeishuConfig:
+    enabled: bool = False
+    webhook_url: str = ""
+    timeout_seconds: float = 8.0
+
+
+@dataclass(frozen=True)
 class HedgeConfig:
     quote_currency: str = "USDT"
     matched_threshold_percent: float = 1.0
     warning_threshold_percent: float = 5.0
     dust_value_usdt: float = 1.0
     aliases: dict[str, str] = field(default_factory=lambda: {"XBT": "BTC"})
+    excluded_assets: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True)
@@ -61,6 +69,7 @@ class AppConfig:
     login: LoginConfig
     kucoin: KucoinConfig
     monitor: MonitorConfig
+    feishu: FeishuConfig
     hedge: HedgeConfig
     trading: TradingConfig
     config_path: Path
@@ -97,6 +106,7 @@ def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> AppConfig:
     login = _section(raw, "login")
     kucoin = _section(raw, "kucoin")
     monitor = _section(raw, "monitor")
+    feishu = _section(raw, "feishu")
     hedge = _section(raw, "hedge")
     symbols = _section(raw, "symbols")
     trading = _section(raw, "trading")
@@ -116,6 +126,21 @@ def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> AppConfig:
         str(key).strip().upper(): str(value).strip().upper()
         for key, value in (aliases or {"XBT": "BTC"}).items()
     }
+    raw_excluded_assets = hedge.get("excluded_assets", [])
+    if not isinstance(raw_excluded_assets, list):
+        raise ValueError("hedge.excluded_assets must be a list")
+    excluded_assets = frozenset(
+        normalized_aliases.get(asset, asset)
+        for value in raw_excluded_assets
+        if (asset := str(value).strip().upper())
+    )
+    feishu_config = FeishuConfig(
+        enabled=bool(feishu.get("enabled", False)),
+        webhook_url=str(feishu.get("webhook_url", "")).strip(),
+        timeout_seconds=max(1.0, float(feishu.get("timeout_seconds", 8))),
+    )
+    if feishu_config.enabled and not feishu_config.webhook_url:
+        raise ValueError("feishu.webhook_url is required when feishu.enabled is true")
 
     database_path = PACKAGE_DIR / "runtime_data" / "kucoin_exposure.sqlite3"
     return AppConfig(
@@ -134,12 +159,14 @@ def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> AppConfig:
             interval_seconds=max(10, int(monitor.get("interval_seconds", 60))),
             stale_after_seconds=max(30, int(monitor.get("stale_after_seconds", 180))),
         ),
+        feishu=feishu_config,
         hedge=HedgeConfig(
             quote_currency=quote_currency,
             matched_threshold_percent=float(hedge.get("matched_threshold_percent", 1)),
             warning_threshold_percent=float(hedge.get("warning_threshold_percent", 5)),
             dust_value_usdt=float(hedge.get("dust_value_usdt", 1)),
             aliases=normalized_aliases,
+            excluded_assets=excluded_assets,
         ),
         trading=TradingConfig(
             enabled=bool(trading.get("enabled", False)),

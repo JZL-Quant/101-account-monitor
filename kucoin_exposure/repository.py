@@ -288,7 +288,7 @@ class ExposureRepository:
             rows = connection.execute(
                 """
                 SELECT id, created_at, username, asset, status,
-                       result_json, error_message
+                       request_json, result_json, error_message
                 FROM trade_actions ORDER BY id DESC LIMIT ?
                 """,
                 (max(1, min(limit, 100)),),
@@ -296,6 +296,37 @@ class ExposureRepository:
         results = []
         for row in rows:
             item = dict(row)
-            item["result"] = json.loads(item.pop("result_json"))
+            try:
+                request = json.loads(item.pop("request_json"))
+            except (TypeError, ValueError):
+                request = {}
+            try:
+                result = json.loads(item.pop("result_json"))
+            except (TypeError, ValueError):
+                result = {}
+            orders = result.get("orders", [])
+            item["spot_qty"] = request.get(
+                "spot_trade_available", request.get("spot_qty")
+            )
+            item["futures_qty"] = request.get("futures_qty")
+            item["assets"] = request.get("assets", [])
+            item["order_legs"] = [
+                {
+                    "leg": order.get("leg", ""),
+                    "ok": bool(order.get("ok")),
+                    "error": order.get("error", ""),
+                }
+                for order in orders
+                if isinstance(order, dict)
+            ]
             results.append(item)
         return results
+
+    async def clear_trade_actions(self) -> int:
+        return await asyncio.to_thread(self._clear_trade_actions_sync)
+
+    def _clear_trade_actions_sync(self) -> int:
+        with closing(self._connect()) as connection:
+            cursor = connection.execute("DELETE FROM trade_actions")
+            connection.commit()
+            return max(0, int(cursor.rowcount))

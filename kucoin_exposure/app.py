@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 from .auth import COOKIE_NAME, Session, SessionSigner, credentials_match
 from .client import KucoinAPIError, KucoinClient
 from .config import AppConfig, PACKAGE_DIR, load_config
+from .feishu import FeishuNotifier
 from .repository import ExposureRepository
 from .scheduler import run_refresh_loop
 from .service import ExposureService
@@ -45,7 +46,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     config = config or load_config()
     repository = ExposureRepository(config.database_path)
     client = KucoinClient(config.kucoin, logger=LOGGER)
-    service = ExposureService(config, client, repository)
+    notifier = FeishuNotifier(config.feishu)
+    service = ExposureService(config, client, repository, notifier)
     signer = SessionSigner(
         config.login.session_secret, config.login.session_days
     )
@@ -188,6 +190,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         session = require_session(request)
         require_csrf(request, session)
         return await service.refresh()
+
+    @app.post("/api/kucoin/exposure/actions/clear")
+    async def clear_actions(request: Request):
+        session = require_session(request)
+        require_csrf(request, session)
+        deleted = await repository.clear_trade_actions()
+        LOGGER.info(
+            "Trade action history cleared by %s; deleted=%s",
+            session.username,
+            deleted,
+        )
+        return {"status": "complete", "deleted": deleted}
 
     @app.get("/api/kucoin/exposure/{asset}/close-preview")
     async def close_preview(asset: str, request: Request):

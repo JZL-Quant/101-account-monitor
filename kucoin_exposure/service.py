@@ -9,6 +9,7 @@ from typing import Any
 from .calculator import build_hedge_rows, floor_to_increment, normalize_asset
 from .client import KucoinAPIError, KucoinClient
 from .config import AppConfig
+from .feishu import FeishuNotifier
 from .models import (
     FuturesPosition,
     HedgeRow,
@@ -29,15 +30,18 @@ class ExposureService:
         config: AppConfig,
         client: KucoinClient,
         repository: ExposureRepository,
+        notifier: FeishuNotifier | None = None,
     ):
         self.config = config
         self.client = client
         self.repository = repository
+        self.notifier = notifier
         # create_app() 在 uvicorn event loop 启动前运行，锁延迟到 start()。
         self._refresh_lock: asyncio.Lock | None = None
         self._trade_lock: asyncio.Lock | None = None
         self._asset_locks: dict[str, asyncio.Lock] = {}
         self._latest: dict[str, Any] | None = None
+        self._alerted_assets: set[str] = set()
 
     async def start(self):
         self._refresh_lock = asyncio.Lock()
@@ -45,13 +49,42 @@ class ExposureService:
         self._asset_locks.clear()
         await self.repository.initialize()
         await self.client.start()
+        if self.notifier is not None:
+            await self.notifier.start()
         self._latest = await self.repository.latest_success()
 
     async def close(self):
         await self.client.close()
+        if self.notifier is not None:
+            await self.notifier.close()
         self._refresh_lock = None
         self._trade_lock = None
         self._asset_locks.clear()
+        self._alerted_assets.clear()
+
+    async def _send_new_exposure_alerts(
+        self,
+        rows: list[HedgeRow],
+        sampled_at: str,
+    ) -> None:
+        active_rows = [
+            row
+            for row in rows
+            if not row.excluded_from_hedge and row.status != "已对冲"
+        ]
+        active_assets = {row.asset for row in active_rows}
+        self._alerted_assets.intersection_update(active_assets)
+        new_rows = [
+            row for row in active_rows if row.asset not in self._alerted_assets
+        ]
+        if not new_rows or self.notifier is None:
+            return
+        try:
+            await self.notifier.send_exposure_alert(new_rows, sampled_at)
+        except Exception:
+            LOGGER.exception("Feishu exposure alert failed; will retry next refresh")
+            return
+        self._alerted_assets.update(row.asset for row in new_rows)
 
     def _asset_lock(self, asset: str) -> asyncio.Lock:
         return self._asset_locks.setdefault(asset, asyncio.Lock())
@@ -97,6 +130,7 @@ class ExposureService:
             matched_threshold_percent=self.config.hedge.matched_threshold_percent,
             warning_threshold_percent=self.config.hedge.warning_threshold_percent,
             dust_value_usdt=self.config.hedge.dust_value_usdt,
+            excluded_assets=self.config.hedge.excluded_assets,
         )
         return spot_balances, futures_positions, spot_symbols, hedge_rows, account
 
@@ -164,6 +198,10 @@ class ExposureService:
                     json_ready(hedge_rows),
                 )
                 self._latest = payload
+                await self._send_new_exposure_alerts(
+                    hedge_rows,
+                    str(payload["sampled_at"]),
+                )
                 return payload
             except Exception as exc:
                 LOGGER.exception("KuCoin exposure refresh failed")
@@ -198,6 +236,8 @@ class ExposureService:
 
     async def preview_close(self, asset: str) -> dict[str, Any]:
         asset = normalize_asset(asset, self.config.hedge.aliases)
+        if asset in self.config.hedge.excluded_assets:
+            raise ValueError(f"{asset} 是现货储备资产，不参与平仓")
         # 预览只读取最后一次成功快照，不额外消耗 KuCoin REST 配额。
         latest = await self.latest()
         row = next(
@@ -227,6 +267,9 @@ class ExposureService:
         *,
         _operation_locked: bool = False,
     ) -> dict[str, Any]:
+        asset = normalize_asset(asset, self.config.hedge.aliases)
+        if asset in self.config.hedge.excluded_assets:
+            raise ValueError(f"{asset} 是现货储备资产，不参与平仓")
         if not self.config.trading.enabled:
             raise PermissionError("config.yaml 中 trading.enabled 尚未启用")
         if self._trade_lock is None:
@@ -240,7 +283,6 @@ class ExposureService:
                     username,
                     _operation_locked=True,
                 )
-        asset = normalize_asset(asset, self.config.hedge.aliases)
         async with self._asset_lock(asset):
             request_record: dict[str, Any] = {"asset": asset}
             result: dict[str, Any] = {"cancel": [], "orders": []}
@@ -492,6 +534,8 @@ class ExposureService:
                     str(row.get("asset", "")).upper()
                     for row in latest.get("hedges", [])
                     if row.get("asset")
+                    and str(row.get("asset", "")).upper()
+                    not in self.config.hedge.excluded_assets
                     and (
                         abs(float(row.get("spot_qty", 0))) > 0
                         or abs(float(row.get("futures_qty", 0))) > 0

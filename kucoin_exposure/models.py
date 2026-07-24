@@ -76,6 +76,7 @@ class HedgeRow:
     status: str
     futures_symbols: tuple[str, ...]
     spot_symbol: str | None
+    excluded_from_hedge: bool = False
 
 
 def json_ready(value: Any) -> Any:

@@ -125,6 +125,33 @@ class CalculatorTests(unittest.TestCase):
         self.assertEqual(rows[0].mismatch_percent, Decimal("0"))
         self.assertEqual(rows[0].status, "已对冲")
 
+    def test_excluded_asset_is_displayed_as_spot_reserve(self):
+        balances = [
+            SpotBalance(
+                currency="KCS",
+                account_type="unified",
+                balance=Decimal("1.5"),
+                available=Decimal("1.5"),
+                holds=Decimal("0"),
+            )
+        ]
+        rows = build_hedge_rows(
+            balances,
+            [],
+            {},
+            {"KCS": Decimal("10")},
+            aliases={"XBT": "BTC"},
+            quote_currency="USDT",
+            matched_threshold_percent=1,
+            warning_threshold_percent=5,
+            dust_value_usdt=1,
+            excluded_assets=frozenset({"KCS"}),
+        )
+        self.assertEqual(rows[0].net_value, Decimal("15.0"))
+        self.assertEqual(rows[0].mismatch_percent, Decimal("0"))
+        self.assertEqual(rows[0].status, "现货储备")
+        self.assertTrue(rows[0].excluded_from_hedge)
+
 
 class AuthTests(unittest.TestCase):
     def test_signed_session_survives_until_expiry(self):
@@ -155,6 +182,12 @@ class RepositoryTests(unittest.IsolatedAsyncioTestCase):
             rows = await repository.recent_trade_actions()
             self.assertEqual(rows[0]["id"], action_id)
             self.assertEqual(rows[0]["asset"], "BTC")
+            self.assertEqual(rows[0]["username"], "admin")
+            self.assertEqual(rows[0]["order_legs"], [])
+            self.assertNotIn("result", rows[0])
+            deleted = await repository.clear_trade_actions()
+            self.assertEqual(deleted, 1)
+            self.assertEqual(await repository.recent_trade_actions(), [])
 
 
 if __name__ == "__main__":

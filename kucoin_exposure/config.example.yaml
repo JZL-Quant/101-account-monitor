@@ -35,8 +35,18 @@ monitor:
   # 最后成功数据超过多少秒后，页面显示“已过期”；最小值是 30 秒。
   stale_after_seconds: 180
 
+# 飞书自定义机器人报警。Webhook 留空并保持 false 时完全禁用。
+feishu:
+  enabled: false
+  webhook_url: ""
+  # 单次飞书请求超时秒数；发送失败不会影响敞口采集。
+  timeout_seconds: 8
+
 # 现货与合约的对冲判定规则。
 hedge:
+  # 不参与多空对冲和平仓的现货储备资产；仍会在页面展示数量和价值。
+  excluded_assets:
+    - KCS
   # 统一计价币种。第一版按 USDT 现货交易对和 USDT Futures 设计。
   quote_currency: USDT
   # 偏差率不超过此值时显示“已对冲”。

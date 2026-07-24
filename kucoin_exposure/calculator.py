@@ -25,6 +25,7 @@ def build_hedge_rows(
     matched_threshold_percent: float,
     warning_threshold_percent: float,
     dust_value_usdt: float,
+    excluded_assets: frozenset[str] | set[str] | None = None,
 ) -> list[HedgeRow]:
     spot_qty: dict[str, Decimal] = defaultdict(lambda: ZERO)
     spot_available: dict[str, Decimal] = defaultdict(lambda: ZERO)
@@ -51,6 +52,7 @@ def build_hedge_rows(
     matched = Decimal(str(matched_threshold_percent))
     warning = Decimal(str(warning_threshold_percent))
     dust = Decimal(str(dust_value_usdt))
+    excluded = excluded_assets or frozenset()
     for asset in sorted(set(spot_qty) | set(futures_qty)):
         spot = spot_qty[asset]
         future = futures_qty[asset]
@@ -61,7 +63,11 @@ def build_hedge_rows(
         mismatch = abs(net) / denominator * Decimal("100") if denominator else ZERO
         same_direction = spot != ZERO and future != ZERO and (spot > 0) == (future > 0)
 
-        if abs(net_value) < dust:
+        is_excluded = asset in excluded
+        if is_excluded:
+            mismatch = ZERO
+            status = "现货储备"
+        elif abs(net_value) < dust:
             # 灰尘余额已按配置忽略，不再显示容易误导的 100% 相对偏差。
             mismatch = ZERO
             status = "已对冲"
@@ -90,6 +96,7 @@ def build_hedge_rows(
                 status=status,
                 futures_symbols=tuple(sorted(set(futures_symbols[asset]))),
                 spot_symbol=spot_symbol,
+                excluded_from_hedge=is_excluded,
             )
         )
     return rows
