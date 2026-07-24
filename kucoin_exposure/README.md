@@ -68,6 +68,8 @@ server:
   host: 127.0.0.1
   port: 8000
   base_path: ""
+  login_path: ""
+  cookie_path: ""
   secure_cookie: false
 ```
 
@@ -116,8 +118,33 @@ KuCoin 独立服务使用的端口。它与现有 `account_monitor` 的 `7007` �
 base_path: /exposure/kucoin
 ```
 
-填写后，登录、退出、页面跳转和所有浏览器 API 请求都会自动使用该前缀。
+填写后，退出、页面跳转和所有浏览器 API 请求都会自动使用该前缀。
 Nginx 转发时需要去掉这个前缀，配置中的 `proxy_pass` 必须带末尾 `/`。
+
+#### `server.login_path`
+
+- 默认值：空字符串，此时使用 `base_path/login`
+- 是否必填：否
+- 修改后是否需要重启：是
+
+需要把登录页放在独立地址时填写完整公开路径：
+
+```yaml
+login_path: /exposure/login
+```
+
+#### `server.cookie_path`
+
+- 默认值：空字符串，此时使用 `base_path`
+- 是否必填：否
+- 修改后是否需要重启：是
+
+Cookie路径必须同时覆盖登录页和主页面。当前登录页是 `/exposure/login`，
+主页面是 `/exposure/kucoin/`，因此使用共同父路径：
+
+```yaml
+cookie_path: /exposure
+```
 
 #### `server.secure_cookie`
 
@@ -133,6 +160,15 @@ Nginx 转发时需要去掉这个前缀，配置中的 `proxy_pass` 必须带末
 应用保持监听 `127.0.0.1:8000`，不需要开放公网 8000 端口：
 
 ```nginx
+location = /exposure/login {
+    proxy_pass http://127.0.0.1:8000/login;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
 location = /exposure/kucoin {
     return 301 /exposure/kucoin/;
 }
@@ -151,6 +187,8 @@ location /exposure/kucoin/ {
 `sudo systemctl reload nginx`。最终访问：
 
 ```text
+登录页：https://risk.jzlcapital.xyz/exposure/login
+主页面：
 https://risk.jzlcapital.xyz/exposure/kucoin/
 ```
 

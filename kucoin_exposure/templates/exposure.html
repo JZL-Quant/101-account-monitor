@@ -123,6 +123,7 @@
 <script>
 const csrf = document.querySelector('meta[name="csrf-token"]').content;
 const basePath = {{ base_path | tojson }};
+const loginPath = {{ login_path | tojson }};
 const message = document.getElementById('message');
 let latestData = null;
 const appUrl = path => `${basePath}${path}`;
@@ -197,7 +198,7 @@ function tradeQuantity(row, leg) {
 }
 async function api(url, options = {}) {
     const response = await fetch(url, { credentials: 'same-origin', ...options });
-    if (response.status === 401) { location.href = appUrl('/login'); throw new Error('请先登录'); }
+    if (response.status === 401) { location.href = loginPath; throw new Error('请先登录'); }
     const text = await response.text();
     let data;
     try {
@@ -392,7 +393,7 @@ document.getElementById('refreshButton').addEventListener('click', async event =
 });
 document.getElementById('logoutButton').addEventListener('click', async () => {
     await api(appUrl('/logout'), {method: 'POST', headers: {'X-CSRF-Token': csrf}});
-    location.href = appUrl('/login');
+    location.href = loginPath;
 });
 load();
 setInterval(load, 30000);

@@ -57,6 +57,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         suffix = path if path.startswith("/") else f"/{path}" if path else "/"
         return f"{base_path}{suffix}"
 
+    login_url = config.server.login_path or public_url("/login")
+    cookie_path = config.server.cookie_path or base_path or "/"
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         await service.start()
@@ -121,7 +124,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     async def root(request: Request):
         session = session_for(request)
         if session is None:
-            return RedirectResponse(public_url("/login"), status_code=303)
+            return RedirectResponse(login_url, status_code=303)
         return templates.TemplateResponse(
             "exposure.html",
             {
@@ -129,6 +132,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 "username": session.username,
                 "csrf_token": session.csrf_token,
                 "base_path": base_path,
+                "login_path": login_url,
             },
         )
 
@@ -138,7 +142,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             return RedirectResponse(public_url(), status_code=303)
         return templates.TemplateResponse(
             "login.html",
-            {"request": request, "error": error, "base_path": base_path},
+            {"request": request, "error": error, "login_path": login_url},
         )
 
     @app.post("/login", include_in_schema=False)
@@ -157,15 +161,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 {
                     "request": request,
                     "error": "用户名或密码错误",
-                    "base_path": base_path,
+                    "login_path": login_url,
                 },
                 status_code=401,
             )
         response = RedirectResponse(public_url(), status_code=303)
-        if base_path:
+        for old_path in {"/", base_path or "/", cookie_path} - {cookie_path}:
             # 清理旧版本曾写在站点根路径下的同名 Cookie，避免浏览器同时
             # 发送两个值而造成登录状态判断不稳定。
-            response.delete_cookie(COOKIE_NAME, path="/")
+            response.delete_cookie(COOKIE_NAME, path=old_path)
         response.set_cookie(
             COOKIE_NAME,
             signer.issue(username),
@@ -173,7 +177,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             httponly=True,
             samesite="strict",
             secure=config.server.secure_cookie,
-            path=base_path or "/",
+            path=cookie_path,
         )
         return response
 
@@ -184,11 +188,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         response = JSONResponse({"ok": True})
         response.delete_cookie(
             COOKIE_NAME,
-            path=base_path or "/",
+            path=cookie_path,
             secure=config.server.secure_cookie,
         )
-        if base_path:
-            response.delete_cookie(COOKIE_NAME, path="/")
+        for old_path in {"/", base_path or "/", cookie_path} - {cookie_path}:
+            response.delete_cookie(COOKIE_NAME, path=old_path)
         return response
 
     @app.get(
@@ -199,7 +203,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     async def exposure_page(request: Request):
         session = session_for(request)
         if session is None:
-            return RedirectResponse(public_url("/login"), status_code=303)
+            return RedirectResponse(login_url, status_code=303)
         return RedirectResponse(public_url(), status_code=303)
 
     @app.get("/api/kucoin/exposure/latest")

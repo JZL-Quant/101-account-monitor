@@ -6,6 +6,10 @@ server:
   port: 8000
   # Nginx 对外发布的路径前缀；直接访问本机端口时留空。
   base_path: ""
+  # 可选的独立登录页面路径；留空时使用 base_path/login。
+  login_path: ""
+  # 登录 Cookie 的路径；独立登录路径和页面路径不同时应使用共同父路径。
+  cookie_path: ""
   # 仅通过 HTTPS 反向代理访问时设为 true。
   secure_cookie: false
 

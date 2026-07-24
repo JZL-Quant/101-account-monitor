@@ -16,6 +16,8 @@ class ServerConfig:
     host: str = "127.0.0.1"
     port: int = 8000
     base_path: str = ""
+    login_path: str = ""
+    cookie_path: str = ""
     secure_cookie: bool = False
 
 
@@ -159,6 +161,8 @@ def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> AppConfig:
             host=str(server.get("host", "127.0.0.1")).strip(),
             port=int(server.get("port", 8000)),
             base_path=_base_path(server.get("base_path", "")),
+            login_path=_base_path(server.get("login_path", "")),
+            cookie_path=_base_path(server.get("cookie_path", "")),
             secure_cookie=bool(server.get("secure_cookie", False)),
         ),
         login=login_config,
