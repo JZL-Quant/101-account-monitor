@@ -51,7 +51,9 @@ class KucoinClient:
         self._last_private_request_at = 0.0
         # UTA 子账户默认限频较低。串行化私有 REST 请求并留出间隔，
         # 避免页面刷新、定时刷新和平仓流程在同一秒内形成突发请求。
-        self._private_request_interval = 0.15
+        # 部分 UTA 私有接口单次会消耗多个 rate-limit weight。0.6 秒不仅
+        # 限制请求次数，也给默认额度较低的子账户留出权重余量。
+        self._private_request_interval = 0.6
 
     async def start(self):
         if self._session is None or self._session.closed:

@@ -602,7 +602,8 @@ kucoin_exposure/runtime_logs/kucoin_exposure.log
 
 ### 出现 `429000: Too many requests`
 
-这是 KuCoin UTA 的用户级限频。程序会串行发送私有 REST 请求，查询和
+这是 KuCoin UTA 的用户级限频。程序会串行发送私有 REST 请求，并在相邻
+私有请求之间至少等待 `0.6` 秒。查询和
 `cancel-all` 撤单遇到 `429000` 时会优先读取响应头
 `gw-ratelimit-reset`，等待配额恢复后最多重试 3 次；响应头缺失时按
 3、6、12 秒退避。

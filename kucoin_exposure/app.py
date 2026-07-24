@@ -95,6 +95,21 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             },
         )
 
+    @app.exception_handler(Exception)
+    async def unexpected_error_handler(request: Request, exc: Exception):
+        LOGGER.exception(
+            "Unhandled request error: %s %s",
+            request.method,
+            request.url.path,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": f"内部错误：{type(exc).__name__}: {exc}",
+                "code": "internal_error",
+            },
+        )
+
     @app.get("/", include_in_schema=False)
     async def root(request: Request):
         if session_for(request):
