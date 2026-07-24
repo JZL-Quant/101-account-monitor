@@ -49,7 +49,7 @@ account_monitor/
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install fastapi uvicorn pandas pyyaml prometheus-client jinja2 python-multipart requests ccxt gate-api
+pip install fastapi uvicorn pandas pyyaml prometheus-client jinja2 python-multipart requests ccxt gate-api "google-cloud-bigquery>=3.25,<4"
 ```
 
 ### 2. 创建账户配置
@@ -147,7 +147,10 @@ GRAFANA_PASSWORD = ""
 | `RUNTIME_LOG_LEVEL` | `WARNING` | 运行日志级别 |
 | `BINANCE_DAILY_HOUR` | `10` | 每日任务执行小时 |
 | `BINANCE_DAILY_MINUTE` | `31` | 每日任务执行分钟 |
-| `BINANCE_RUN_DAILY_ON_STARTUP` | `0` | 启动时是否执行日报任务；设为 `0` 时，若当天日报时间已过，重启也不会补发 |
+| `BIGQUERY_RETURN_ENABLED` | `0` | 是否将 Binance 日收益写入 BigQuery；默认关闭 |
+| `BIGQUERY_PROJECT_ID` | `applied-groove-464707-r8` | BigQuery 项目 ID |
+| `BIGQUERY_DATASET` | `Daily_reports` | BigQuery 数据集 |
+| `BIGQUERY_RETURN_TABLE` | `BN_Return_temp` | Binance 日收益目标表 |
 | `LARGE_EQUITY_CHANGE_USDT_THRESHOLD` | `100` | 分钟级大额资金变动告警的 USDT 阈值 |
 | `LARGE_EQUITY_CHANGE_BTC_THRESHOLD` | `1` | 分钟级大额资金变动告警的 BTC 阈值 |
 | `GRAFANA_URL` | `http://127.0.0.1:3000` | Grafana 地址 |
@@ -336,6 +339,28 @@ minute_snapshots/<exchange>_<account>_<ccy>_minute_snapshot.csv
 若没有有效权益但存在利率配置，组合资金成本会退化为各账户资金成本的算术平均。
 
 组合计算会跳过权益或收益率无效、以及权益不大于最小有效阈值的账户。卡片中的“当日收益”实际指 `annualized_return_24h` 的简单年化百分比，不是未年化的单日收益；账户按该值从高到低排列。
+
+### Binance 日收益写入 BigQuery
+
+设置 `BIGQUERY_RETURN_ENABLED=1` 后，日级任务会把仅属于 Binance 的账户写入
+`BIGQUERY_PROJECT_ID.BIGQUERY_DATASET.BIGQUERY_RETURN_TABLE`。认证使用 Google
+Application Default Credentials；自托管环境通常通过
+`GOOGLE_APPLICATION_CREDENTIALS=/安全目录/service-account.json` 指定服务账号文件，
+不要把密钥放进仓库。
+
+写入字段与旧表 `BN_Return_temp` 保持一致，收益率使用小数形式，例如 `0.125`
+表示 `12.5%`。账户名继续移除下划线以兼容历史数据。系统先写入唯一临时表，再按
+`(date, account)` 执行 `MERGE`，因此同一天重跑会更新现有记录，不会继续追加重复行。
+30 个有效日报参考点不足、数值无效或缺少目标日 UTC 09:00–10:00 参考窗口的账户会被
+跳过并记录日志。BigQuery 上传异常不会中断 Prometheus 更新或飞书日报。
+
+启用 BigQuery 后，服务每次启动都会执行一次独立的 BigQuery 补写任务。启动阶段不会
+运行完整日报任务，因此不会发送飞书日报。正常调度时间到达后，日级任务仍会照常更新
+BigQuery 并发送飞书日报。如果启动时当天调度时间已经过去，完整日报任务会等到下一天，
+不会在启动后补发。
+
+启用新链路前，应先停止旧目录中的 `account_annualized_summary.py` 和
+`upload_annualized_to_big_query.py` 定时任务，避免多个程序同时写入同一张表。
 
 Prometheus 可按如下方式配置抓取：
 

@@ -64,8 +64,14 @@ MONITOR_NAV_PORT = int(os.getenv("MONITOR_NAV_PORT", "7007"))
 
 DAILY_HOUR = int(os.getenv("BINANCE_DAILY_HOUR", "10"))
 DAILY_MINUTE = int(os.getenv("BINANCE_DAILY_MINUTE", "31"))
-# "1" means enabled; "0" (the default) means no report on startup.
-RUN_DAILY_ON_STARTUP = os.getenv("BINANCE_RUN_DAILY_ON_STARTUP", "0") == "1"
+
+# Optional BigQuery persistence for daily Binance return rows. Authentication
+# uses Google Application Default Credentials, normally configured through
+# GOOGLE_APPLICATION_CREDENTIALS on self-hosted deployments.
+BIGQUERY_RETURN_ENABLED = os.getenv("BIGQUERY_RETURN_ENABLED", "0") == "1"
+BIGQUERY_PROJECT_ID = os.getenv("BIGQUERY_PROJECT_ID", "applied-groove-464707-r8").strip()
+BIGQUERY_DATASET = os.getenv("BIGQUERY_DATASET", "Daily_reports").strip()
+BIGQUERY_RETURN_TABLE = os.getenv("BIGQUERY_RETURN_TABLE", "BN_Return_temp").strip()
 
 # 分钟级大额资金变动告警阈值。
 LARGE_EQUITY_CHANGE_THRESHOLDS = {

@@ -4,6 +4,11 @@ import os
 import math
 from datetime import datetime, timedelta, timezone
 from core.account_registry import get_account_registry
+from core.bigquery_returns import (
+    build_binance_return_rows,
+    completed_reference_date,
+    merge_rows_to_bigquery,
+)
 from core.metrics import AccountMetricsStore
 from core.feishu import NOTIFIER
 from core.large_equity_changes import (
@@ -15,6 +20,10 @@ from core.runtime_logging import setup_runtime_logger
 from core.scheduler import MonitorScheduler
 from config.settings import (
     ACCOUNTS_CONFIG_PATH,
+    BIGQUERY_DATASET,
+    BIGQUERY_PROJECT_ID,
+    BIGQUERY_RETURN_ENABLED,
+    BIGQUERY_RETURN_TABLE,
     MIN_VALID_CALCULATION_VALUE,
     PROJECT_ROOT,
 )
@@ -608,13 +617,71 @@ async def update_metrics():
         except Exception as exc:
             RUNTIME_LOGGER.exception("[update_metrics] account %s failed", account_name)
 
+
+async def update_bigquery_returns(snapshot_frames=None):
+    """Build and merge Binance return rows without generating report cards."""
+    if not BIGQUERY_RETURN_ENABLED:
+        return
+
+    if snapshot_frames is None:
+        snapshot_frames = {}
+        for account_name, account_info in list(accounts.items()):
+            if account_info.get("exchange_id", "binance").lower() != "binance":
+                continue
+            try:
+                snapshot_df = read_minute_snapshot_file(account_info["minute_snapshot_file"])
+                snapshot_frames[account_name] = (
+                    snapshot_df if snapshot_df is not None else pd.DataFrame()
+                )
+            except Exception:
+                RUNTIME_LOGGER.exception(
+                    "[bigquery_returns] account=%s snapshot read failed",
+                    account_name,
+                )
+
+    target_date = completed_reference_date()
+    try:
+        rows, skipped = build_binance_return_rows(accounts, snapshot_frames, target_date)
+        for account_name, reason in skipped.items():
+            RUNTIME_LOGGER.warning(
+                "[bigquery_returns] skipped account=%s date=%s reason=%s",
+                account_name,
+                target_date,
+                reason,
+            )
+        result = await asyncio.to_thread(
+            merge_rows_to_bigquery,
+            rows,
+            project_id=BIGQUERY_PROJECT_ID,
+            dataset=BIGQUERY_DATASET,
+            table=BIGQUERY_RETURN_TABLE,
+        )
+        RUNTIME_LOGGER.info(
+            "[bigquery_returns] merged date=%s rows=%s skipped=%s job_id=%s",
+            target_date,
+            result["row_count"],
+            len(skipped),
+            result["job_id"],
+        )
+    except Exception:
+        RUNTIME_LOGGER.exception(
+            "[bigquery_returns] upload failed date=%s target=%s.%s.%s",
+            target_date,
+            BIGQUERY_PROJECT_ID,
+            BIGQUERY_DATASET,
+            BIGQUERY_RETURN_TABLE,
+        )
+
+
 async def update_annualized_metrics():
     """日级任务入口：编排 metrics 计算、日报卡片生成和发送。"""
+    snapshot_frames = {}
     for account_name, account_info in list(accounts.items()):
         try:
             snapshot_df = read_minute_snapshot_file(account_info["minute_snapshot_file"])
             if snapshot_df is None:
                 snapshot_df = pd.DataFrame()
+            snapshot_frames[account_name] = snapshot_df
             await update_annualized_returns(account_name, account_info, snapshot_df)
             await calculate_annualized_cumulative_return(account_name, account_info, snapshot_df)
             await calculate_post_dividend_annualized_return(account_name, account_info, snapshot_df)
@@ -622,11 +689,14 @@ async def update_annualized_metrics():
         except Exception:
             RUNTIME_LOGGER.exception("[annualized_metrics] account %s refresh failed", account_name)
 
+    await update_bigquery_returns(snapshot_frames)
+
     cards = await build_daily_report_cards(accounts)
     await send_daily_report_cards(cards)
 
 def start_monitor_scheduler():
     scheduler = MonitorScheduler(RUNTIME_LOGGER)
+    scheduler.add_task("startup", update_bigquery_returns)
     scheduler.add_task("minute", update_metrics)
     scheduler.add_task("minute", check_large_equity_changes)
     scheduler.add_task("daily", update_annualized_metrics)

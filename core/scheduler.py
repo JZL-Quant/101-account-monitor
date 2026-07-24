@@ -1,17 +1,16 @@
 import asyncio
 from datetime import datetime, timedelta
 
-from config.settings import DAILY_HOUR, DAILY_MINUTE, RUN_DAILY_ON_STARTUP
+from config.settings import DAILY_HOUR, DAILY_MINUTE
 
 
 class MonitorScheduler:
     def __init__(self, logger=None):
-        self._tasks = {"minute": [], "daily": []}
+        self._tasks = {"startup": [], "minute": [], "daily": []}
         self._logger = logger
         self._last_daily_run_date = None
         self._daily_hour = DAILY_HOUR
         self._daily_minute = DAILY_MINUTE
-        self._run_daily_on_startup = RUN_DAILY_ON_STARTUP
 
     def add_task(self, task_type: str, task_func, name: str = None):
         if task_type not in self._tasks:
@@ -56,15 +55,13 @@ class MonitorScheduler:
 
     async def _run(self):
         await self._safe_run("startup minute tasks", self._run_task_type("minute"))
-        if self._run_daily_on_startup:
-            await self._safe_run("startup daily tasks", self._run_task_type("daily"))
-            self._last_daily_run_date = datetime.now().date()
-        else:
-            # Disabling startup reports also disables catch-up reports after the
-            # configured daily time. The next report will run on the next day.
-            now = datetime.now()
-            if (now.hour, now.minute) >= (self._daily_hour, self._daily_minute):
-                self._last_daily_run_date = now.date()
+        await self._safe_run("one-time startup tasks", self._run_task_type("startup"))
+        # Startup deliberately does not run the complete daily task because
+        # that path also sends Feishu reports. If today's scheduled time has
+        # passed, wait until the next day instead of performing a catch-up.
+        now = datetime.now()
+        if (now.hour, now.minute) >= (self._daily_hour, self._daily_minute):
+            self._last_daily_run_date = now.date()
 
         self._log("info", "scheduler started")
         while True:
