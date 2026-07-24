@@ -47,7 +47,9 @@ class KucoinClient:
         self._session: aiohttp.ClientSession | None = None
         self._contract_cache: dict[str, dict[str, Any]] = {}
         self._spot_symbols_cache: dict[str, SpotSymbol] | None = None
-        self._private_request_lock = asyncio.Lock()
+        # asyncio 同步原语必须在实际运行的 event loop 中创建。FastAPI
+        # 应用对象会在 uvicorn 启动 loop 之前构造，不能在 __init__ 中建锁。
+        self._private_request_lock: asyncio.Lock | None = None
         self._last_private_request_at = 0.0
         # UTA 子账户默认限频较低。串行化私有 REST 请求并留出间隔，
         # 避免页面刷新、定时刷新和平仓流程在同一秒内形成突发请求。
@@ -56,6 +58,8 @@ class KucoinClient:
         self._private_request_interval = 0.6
 
     async def start(self):
+        if self._private_request_lock is None:
+            self._private_request_lock = asyncio.Lock()
         if self._session is None or self._session.closed:
             timeout = aiohttp.ClientTimeout(total=10, connect=5)
             self._session = aiohttp.ClientSession(timeout=timeout)
@@ -64,6 +68,7 @@ class KucoinClient:
         if self._session is not None and not self._session.closed:
             await self._session.close()
         self._session = None
+        self._private_request_lock = None
 
     async def _get_session(self) -> aiohttp.ClientSession:
         await self.start()
@@ -113,7 +118,9 @@ class KucoinClient:
         private: bool = True,
         order_request: bool = False,
     ) -> Any:
+        await self.start()
         if private:
+            assert self._private_request_lock is not None
             async with self._private_request_lock:
                 elapsed = time.monotonic() - self._last_private_request_at
                 if elapsed < self._private_request_interval:

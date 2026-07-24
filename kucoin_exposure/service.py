@@ -33,11 +33,14 @@ class ExposureService:
         self.config = config
         self.client = client
         self.repository = repository
-        self._refresh_lock = asyncio.Lock()
+        # create_app() 在 uvicorn event loop 启动前运行，锁延迟到 start()。
+        self._refresh_lock: asyncio.Lock | None = None
         self._asset_locks: dict[str, asyncio.Lock] = {}
         self._latest: dict[str, Any] | None = None
 
     async def start(self):
+        self._refresh_lock = asyncio.Lock()
+        self._asset_locks.clear()
         await self.repository.initialize()
         await self.client.start()
         self._latest = await self.repository.latest_success()
@@ -52,6 +55,8 @@ class ExposureService:
 
     async def close(self):
         await self.client.close()
+        self._refresh_lock = None
+        self._asset_locks.clear()
 
     def _asset_lock(self, asset: str) -> asyncio.Lock:
         return self._asset_locks.setdefault(asset, asyncio.Lock())
@@ -140,6 +145,8 @@ class ExposureService:
         return json_ready(payload)
 
     async def refresh(self) -> dict[str, Any]:
+        if self._refresh_lock is None:
+            raise RuntimeError("ExposureService has not been started")
         if self._refresh_lock.locked():
             LOGGER.warning("Skipping overlapping KuCoin exposure refresh")
             return self._latest or {"status": "refresh_in_progress"}
