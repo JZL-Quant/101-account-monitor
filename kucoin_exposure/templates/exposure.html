@@ -122,8 +122,10 @@
 
 <script>
 const csrf = document.querySelector('meta[name="csrf-token"]').content;
+const basePath = {{ base_path | tojson }};
 const message = document.getElementById('message');
 let latestData = null;
+const appUrl = path => `${basePath}${path}`;
 
 function n(value, digits = 6) {
     const number = Number(value || 0);
@@ -195,7 +197,7 @@ function tradeQuantity(row, leg) {
 }
 async function api(url, options = {}) {
     const response = await fetch(url, { credentials: 'same-origin', ...options });
-    if (response.status === 401) { location.href = '/login'; throw new Error('请先登录'); }
+    if (response.status === 401) { location.href = appUrl('/login'); throw new Error('请先登录'); }
     const text = await response.text();
     let data;
     try {
@@ -286,13 +288,13 @@ function render(data) {
     });
 }
 async function load() {
-    try { render(await api('/api/kucoin/exposure/latest')); }
+    try { render(await api(appUrl('/api/kucoin/exposure/latest'))); }
     catch (error) { message.className = 'bad'; message.textContent = error.message; }
 }
 async function closeBoth(asset, button) {
     button.disabled = true;
     try {
-        const p = await api(`/api/kucoin/exposure/${encodeURIComponent(asset)}/close-preview`);
+        const p = await api(appUrl(`/api/kucoin/exposure/${encodeURIComponent(asset)}/close-preview`));
         const text = `将同时处理 ${asset} 两侧：\n\n`
             + `现货总量：${q(p.spot_qty)}\n可直接卖出现货：${q(p.spot_trade_available)}\n`
             + `合约币数量：${q(p.futures_qty)}\n当前净敞口：${q(p.net_qty)}\n\n`
@@ -301,7 +303,7 @@ async function closeBoth(asset, button) {
         if (!confirm(text)) return;
         message.className = 'warn';
         message.textContent = `${asset} 双边平仓执行中，请勿重复操作……`;
-        const result = await api(`/api/kucoin/exposure/${encodeURIComponent(asset)}/close-both`, {
+        const result = await api(appUrl(`/api/kucoin/exposure/${encodeURIComponent(asset)}/close-both`), {
             method: 'POST', headers: {'X-CSRF-Token': csrf}
         });
         message.className = result.status === 'complete' ? 'good' : 'bad';
@@ -337,7 +339,7 @@ async function closeAll() {
     message.className = 'warn';
     message.textContent = '全部平仓执行中，请勿关闭页面或重复操作……';
     try {
-        const result = await api('/api/kucoin/exposure/close-all', {
+        const result = await api(appUrl('/api/kucoin/exposure/close-all'), {
             method: 'POST', headers: {'X-CSRF-Token': csrf}
         });
         const failed = (result.results || [])
@@ -363,7 +365,7 @@ document.getElementById('clearActionsButton').addEventListener('click', async ev
     }
     event.target.disabled = true;
     try {
-        const result = await api('/api/kucoin/exposure/actions/clear', {
+        const result = await api(appUrl('/api/kucoin/exposure/actions/clear'), {
             method: 'POST', headers: {'X-CSRF-Token': csrf}
         });
         await load();
@@ -381,7 +383,7 @@ document.getElementById('refreshButton').addEventListener('click', async event =
     try {
         message.className = 'warn';
         message.textContent = '正在向 KuCoin 查询最新余额和持仓…';
-        await api('/api/kucoin/exposure/refresh', {method: 'POST', headers: {'X-CSRF-Token': csrf}});
+        await api(appUrl('/api/kucoin/exposure/refresh'), {method: 'POST', headers: {'X-CSRF-Token': csrf}});
         await load();
         message.className = 'good';
         message.textContent = '已从 KuCoin 获取最新数据';
@@ -389,8 +391,8 @@ document.getElementById('refreshButton').addEventListener('click', async event =
     finally { event.target.disabled = false; }
 });
 document.getElementById('logoutButton').addEventListener('click', async () => {
-    await api('/logout', {method: 'POST', headers: {'X-CSRF-Token': csrf}});
-    location.href = '/login';
+    await api(appUrl('/logout'), {method: 'POST', headers: {'X-CSRF-Token': csrf}});
+    location.href = appUrl('/login');
 });
 load();
 setInterval(load, 30000);

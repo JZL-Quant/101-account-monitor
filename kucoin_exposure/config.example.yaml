@@ -4,6 +4,10 @@ server:
   host: 127.0.0.1
   # 与现有 account_monitor 的 7007 分开，第一版固定使用 8000。
   port: 8000
+  # Nginx 对外发布的路径前缀；直接访问本机端口时留空。
+  base_path: ""
+  # 仅通过 HTTPS 反向代理访问时设为 true。
+  secure_cookie: false
 
 # 登录的是我们开发的本地网页，不是登录 KuCoin 官网。
 login:

@@ -67,6 +67,8 @@ http://127.0.0.1:8000/login
 server:
   host: 127.0.0.1
   port: 8000
+  base_path: ""
+  secure_cookie: false
 ```
 
 #### `server.host`
@@ -101,6 +103,56 @@ KuCoin 独立服务使用的端口。它与现有 `account_monitor` 的 `7007` �
 
 如果 `8000` 已被其他程序占用，可以换成其他未占用端口，例如 `8001`，
 随后使用新端口访问页面。
+
+#### `server.base_path`
+
+- 默认值：空字符串
+- 是否必填：否
+- 修改后是否需要重启：是
+
+通过 Nginx 发布在域名的子路径时，填写浏览器看到的路径前缀。当前部署：
+
+```yaml
+base_path: /exposure/kucoin
+```
+
+填写后，登录、退出、页面跳转和所有浏览器 API 请求都会自动使用该前缀。
+Nginx 转发时需要去掉这个前缀，配置中的 `proxy_pass` 必须带末尾 `/`。
+
+#### `server.secure_cookie`
+
+- 默认值：`false`
+- 是否必填：否
+- 修改后是否需要重启：是
+
+只通过 HTTPS 访问时设为 `true`，浏览器将只在加密连接中发送登录 Cookie。
+本机直接使用 `http://127.0.0.1:8000` 调试时应保持 `false`。
+
+#### Nginx 子路径反向代理
+
+应用保持监听 `127.0.0.1:8000`，不需要开放公网 8000 端口：
+
+```nginx
+location = /exposure/kucoin {
+    return 301 /exposure/kucoin/;
+}
+
+location /exposure/kucoin/ {
+    proxy_pass http://127.0.0.1:8000/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+修改 Nginx 后先执行 `sudo nginx -t`，确认通过后再执行
+`sudo systemctl reload nginx`。最终访问：
+
+```text
+https://risk.jzlcapital.xyz/exposure/kucoin/
+```
 
 ### `login`
 

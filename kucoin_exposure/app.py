@@ -51,6 +51,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     signer = SessionSigner(
         config.login.session_secret, config.login.session_days
     )
+    base_path = config.server.base_path
+
+    def public_url(path: str = "") -> str:
+        suffix = path if path.startswith("/") else f"/{path}" if path else "/"
+        return f"{base_path}{suffix}"
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -114,16 +119,26 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/", include_in_schema=False)
     async def root(request: Request):
-        if session_for(request):
-            return RedirectResponse("/kucoin/exposure", status_code=303)
-        return RedirectResponse("/login", status_code=303)
+        session = session_for(request)
+        if session is None:
+            return RedirectResponse(public_url("/login"), status_code=303)
+        return templates.TemplateResponse(
+            "exposure.html",
+            {
+                "request": request,
+                "username": session.username,
+                "csrf_token": session.csrf_token,
+                "base_path": base_path,
+            },
+        )
 
     @app.get("/login", response_class=HTMLResponse, include_in_schema=False)
     async def login_page(request: Request, error: str = ""):
         if session_for(request):
-            return RedirectResponse("/kucoin/exposure", status_code=303)
+            return RedirectResponse(public_url(), status_code=303)
         return templates.TemplateResponse(
-            "login.html", {"request": request, "error": error}
+            "login.html",
+            {"request": request, "error": error, "base_path": base_path},
         )
 
     @app.post("/login", include_in_schema=False)
@@ -139,18 +154,26 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         ):
             return templates.TemplateResponse(
                 "login.html",
-                {"request": request, "error": "用户名或密码错误"},
+                {
+                    "request": request,
+                    "error": "用户名或密码错误",
+                    "base_path": base_path,
+                },
                 status_code=401,
             )
-        response = RedirectResponse("/kucoin/exposure", status_code=303)
+        response = RedirectResponse(public_url(), status_code=303)
+        if base_path:
+            # 清理旧版本曾写在站点根路径下的同名 Cookie，避免浏览器同时
+            # 发送两个值而造成登录状态判断不稳定。
+            response.delete_cookie(COOKIE_NAME, path="/")
         response.set_cookie(
             COOKIE_NAME,
             signer.issue(username),
             max_age=signer.max_age,
             httponly=True,
             samesite="strict",
-            secure=False,
-            path="/",
+            secure=config.server.secure_cookie,
+            path=base_path or "/",
         )
         return response
 
@@ -159,7 +182,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         session = require_session(request)
         require_csrf(request, session)
         response = JSONResponse({"ok": True})
-        response.delete_cookie(COOKIE_NAME, path="/")
+        response.delete_cookie(
+            COOKIE_NAME,
+            path=base_path or "/",
+            secure=config.server.secure_cookie,
+        )
+        if base_path:
+            response.delete_cookie(COOKIE_NAME, path="/")
         return response
 
     @app.get(
@@ -170,15 +199,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     async def exposure_page(request: Request):
         session = session_for(request)
         if session is None:
-            return RedirectResponse("/login", status_code=303)
-        return templates.TemplateResponse(
-            "exposure.html",
-            {
-                "request": request,
-                "username": session.username,
-                "csrf_token": session.csrf_token,
-            },
-        )
+            return RedirectResponse(public_url("/login"), status_code=303)
+        return RedirectResponse(public_url(), status_code=303)
 
     @app.get("/api/kucoin/exposure/latest")
     async def latest(request: Request):

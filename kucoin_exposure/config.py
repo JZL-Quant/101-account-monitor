@@ -15,6 +15,8 @@ DEFAULT_CONFIG_PATH = PACKAGE_DIR / "config.yaml"
 class ServerConfig:
     host: str = "127.0.0.1"
     port: int = 8000
+    base_path: str = ""
+    secure_cookie: bool = False
 
 
 @dataclass(frozen=True)
@@ -90,6 +92,15 @@ def _required(section: dict[str, Any], key: str, section_name: str) -> str:
     return value
 
 
+def _base_path(value: Any) -> str:
+    path = str(value or "").strip()
+    if not path or path == "/":
+        return ""
+    if not path.startswith("/"):
+        path = f"/{path}"
+    return path.rstrip("/")
+
+
 def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> AppConfig:
     config_path = Path(path).resolve()
     if not config_path.is_file():
@@ -147,6 +158,8 @@ def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> AppConfig:
         server=ServerConfig(
             host=str(server.get("host", "127.0.0.1")).strip(),
             port=int(server.get("port", 8000)),
+            base_path=_base_path(server.get("base_path", "")),
+            secure_cookie=bool(server.get("secure_cookie", False)),
         ),
         login=login_config,
         kucoin=KucoinConfig(
