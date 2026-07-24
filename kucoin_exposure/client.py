@@ -47,6 +47,11 @@ class KucoinClient:
         self._session: aiohttp.ClientSession | None = None
         self._contract_cache: dict[str, dict[str, Any]] = {}
         self._spot_symbols_cache: dict[str, SpotSymbol] | None = None
+        self._private_request_lock = asyncio.Lock()
+        self._last_private_request_at = 0.0
+        # UTA 子账户默认限频较低。串行化私有 REST 请求并留出间隔，
+        # 避免页面刷新、定时刷新和平仓流程在同一秒内形成突发请求。
+        self._private_request_interval = 0.15
 
     async def start(self):
         if self._session is None or self._session.closed:
@@ -106,6 +111,44 @@ class KucoinClient:
         private: bool = True,
         order_request: bool = False,
     ) -> Any:
+        if private:
+            async with self._private_request_lock:
+                elapsed = time.monotonic() - self._last_private_request_at
+                if elapsed < self._private_request_interval:
+                    await asyncio.sleep(self._private_request_interval - elapsed)
+                try:
+                    return await self._request_impl(
+                        method,
+                        base_url,
+                        path,
+                        params=params,
+                        body=body,
+                        private=private,
+                        order_request=order_request,
+                    )
+                finally:
+                    self._last_private_request_at = time.monotonic()
+        return await self._request_impl(
+            method,
+            base_url,
+            path,
+            params=params,
+            body=body,
+            private=private,
+            order_request=order_request,
+        )
+
+    async def _request_impl(
+        self,
+        method: str,
+        base_url: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None,
+        body: dict[str, Any] | None,
+        private: bool,
+        order_request: bool,
+    ) -> Any:
         query = self._encode_query(params)
         endpoint = path + (f"?{query}" if query else "")
         body_text = (
@@ -113,42 +156,77 @@ class KucoinClient:
             if body is not None
             else ""
         )
-        headers = (
-            self._private_headers(method, endpoint, body_text)
-            if private
-            else {"Content-Type": "application/json"}
-        )
         session = await self._get_session()
-        try:
-            async with session.request(
-                method.upper(),
-                base_url + endpoint,
-                headers=headers,
-                data=body_text or None,
-            ) as response:
-                text = await response.text()
-                try:
-                    payload = json.loads(text)
-                except json.JSONDecodeError as exc:
-                    raise KucoinAPIError(
-                        f"KuCoin returned non-JSON response (HTTP {response.status})",
-                        status=response.status,
-                        uncertain=order_request,
-                    ) from exc
-        except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
-            raise KucoinAPIError(
-                f"KuCoin request failed: {exc}", uncertain=order_request
-            ) from exc
-
-        code = str(payload.get("code", ""))
-        if response.status >= 400 or code != "200000":
-            message = str(payload.get("msg") or payload.get("message") or text)
-            raise KucoinAPIError(
-                f"KuCoin error {code or response.status}: {message}",
-                code=code,
-                status=response.status,
+        # GET 和 cancel-all 都是可安全重复的；真实下单绝不自动重试，
+        # 防止响应丢失时生成重复成交。
+        retry_rate_limit = method.upper() == "GET" or path.endswith("/cancel-all")
+        max_attempts = 4 if retry_rate_limit else 1
+        for attempt in range(max_attempts):
+            headers = (
+                self._private_headers(method, endpoint, body_text)
+                if private
+                else {"Content-Type": "application/json"}
             )
-        return payload.get("data")
+            try:
+                async with session.request(
+                    method.upper(),
+                    base_url + endpoint,
+                    headers=headers,
+                    data=body_text or None,
+                ) as response:
+                    text = await response.text()
+                    response_headers = response.headers
+                    try:
+                        payload = json.loads(text)
+                    except json.JSONDecodeError as exc:
+                        raise KucoinAPIError(
+                            f"KuCoin returned non-JSON response (HTTP {response.status})",
+                            status=response.status,
+                            uncertain=order_request,
+                        ) from exc
+            except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+                raise KucoinAPIError(
+                    f"KuCoin request failed: {exc}", uncertain=order_request
+                ) from exc
+
+            code = str(payload.get("code", ""))
+            if (
+                code == "429000"
+                and retry_rate_limit
+                and attempt + 1 < max_attempts
+            ):
+                reset_text = response_headers.get("gw-ratelimit-reset", "")
+                try:
+                    reset_seconds = max(0.0, float(reset_text) / 1000)
+                except (TypeError, ValueError):
+                    reset_seconds = 0.0
+                # 正常配额耗尽按响应头等待；服务过载没有响应头时逐步退避。
+                delay = (
+                    min(reset_seconds, 30.0) + 0.25
+                    if reset_seconds
+                    else 3.0 * (2**attempt)
+                )
+                if self.logger:
+                    self.logger.warning(
+                        "KuCoin rate limit for %s; retry %s/%s in %.2fs",
+                        path,
+                        attempt + 1,
+                        max_attempts - 1,
+                        delay,
+                    )
+                await asyncio.sleep(delay)
+                continue
+
+            if response.status >= 400 or code != "200000":
+                message = str(payload.get("msg") or payload.get("message") or text)
+                raise KucoinAPIError(
+                    f"KuCoin error {code or response.status}: {message}",
+                    code=code,
+                    status=response.status,
+                )
+            return payload.get("data")
+
+        raise AssertionError("unreachable")
 
     async def validate_credentials(self) -> str:
         data = await self._request(

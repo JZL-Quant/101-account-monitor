@@ -600,6 +600,18 @@ kucoin_exposure/runtime_logs/kucoin_exposure.log
 检查 `trading.enabled` 是否仍为 `false`，以及页面上的合约换算校验是否
 全部通过。换算异常时程序会主动拒绝执行双边平仓。
 
+### 出现 `429000: Too many requests`
+
+这是 KuCoin UTA 的用户级限频。程序会串行发送私有 REST 请求，查询和
+`cancel-all` 撤单遇到 `429000` 时会优先读取响应头
+`gw-ratelimit-reset`，等待配额恢复后最多重试 3 次；响应头缺失时按
+3、6、12 秒退避。
+
+真实下单请求不会因为 `429000` 或网络超时自动重试，避免第一次请求实际
+已成交但响应丢失时重复下单。如果安全重试全部失败，本次双边平仓会停止，
+现货和合约下单均不会开始。若同一个 UTA UID 还有其他程序高频调用接口，
+仍应降低其他程序的请求频率。
+
 ### 修改 `trading.enabled` 后按钮仍然不可用
 
 配置在服务启动时读取。修改后需要重启 `python -m kucoin_exposure` 这个
