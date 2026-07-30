@@ -1,6 +1,9 @@
 import math
+import tempfile
 import unittest
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -11,6 +14,7 @@ from core.bigquery_returns import (
     build_merge_sql,
     calculate_return_row,
     completed_reference_date,
+    create_bigquery_client,
 )
 
 
@@ -117,6 +121,33 @@ class BigQueryReturnCalculationTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "invalid BigQuery table"):
             _validate_bigquery_identifier("table` DROP TABLE x", "table")
+
+    def test_bigquery_client_loads_explicit_service_account_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            key_path = Path(temp_dir) / "service-account.json"
+            key_path.touch()
+            credentials = object()
+
+            with (
+                patch(
+                    "google.oauth2.service_account.Credentials.from_service_account_file",
+                    return_value=credentials,
+                ) as credential_loader,
+                patch("google.cloud.bigquery.Client") as client_class,
+            ):
+                client = create_bigquery_client("test-project", key_path)
+
+            credential_loader.assert_called_once_with(str(key_path))
+            client_class.assert_called_once_with(
+                project="test-project",
+                credentials=credentials,
+            )
+            self.assertIs(client, client_class.return_value)
+
+    def test_bigquery_client_rejects_missing_credentials_file(self):
+        missing_path = Path("/definitely/missing/service-account.json")
+        with self.assertRaisesRegex(FileNotFoundError, "credentials file not found"):
+            create_bigquery_client("test-project", missing_path)
 
 
 if __name__ == "__main__":

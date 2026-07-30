@@ -20,6 +20,7 @@ from core.runtime_logging import cleanup_runtime_logs, setup_runtime_logger
 from core.scheduler import MonitorScheduler
 from config.settings import (
     ACCOUNTS_CONFIG_PATH,
+    BIGQUERY_CREDENTIALS_PATH,
     BIGQUERY_DATASET,
     BIGQUERY_PROJECT_ID,
     BIGQUERY_RETURN_ENABLED,
@@ -656,6 +657,7 @@ async def update_bigquery_returns(snapshot_frames=None):
             project_id=BIGQUERY_PROJECT_ID,
             dataset=BIGQUERY_DATASET,
             table=BIGQUERY_RETURN_TABLE,
+            credentials_path=BIGQUERY_CREDENTIALS_PATH,
         )
         RUNTIME_LOGGER.info(
             "[bigquery_returns] merged date=%s rows=%s skipped=%s job_id=%s",

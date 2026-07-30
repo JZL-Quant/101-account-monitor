@@ -6,6 +6,7 @@ import math
 import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -206,12 +207,30 @@ def _validate_bigquery_identifier(value: str, label: str) -> str:
     return value
 
 
+def create_bigquery_client(project_id: str, credentials_path: str | Path | None = None):
+    """Create a BigQuery client using an explicit service-account key when set."""
+    from google.cloud import bigquery
+
+    if credentials_path is None:
+        return bigquery.Client(project=project_id)
+
+    key_path = Path(credentials_path).expanduser()
+    if not key_path.is_file():
+        raise FileNotFoundError(f"BigQuery credentials file not found: {key_path}")
+
+    from google.oauth2 import service_account
+
+    credentials = service_account.Credentials.from_service_account_file(str(key_path))
+    return bigquery.Client(project=project_id, credentials=credentials)
+
+
 def merge_rows_to_bigquery(
     rows: list[dict[str, Any]],
     *,
     project_id: str,
     dataset: str,
     table: str,
+    credentials_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Load rows into a unique staging table and MERGE by (date, account)."""
     if not rows:
@@ -225,7 +244,7 @@ def merge_rows_to_bigquery(
     # dependency and startup behavior.
     from google.cloud import bigquery
 
-    client = bigquery.Client(project=project_id)
+    client = create_bigquery_client(project_id, credentials_path)
     target_table = f"{project_id}.{dataset}.{table}"
     staging_name = f"{table}_stage_{uuid.uuid4().hex}"
     staging_table = f"{project_id}.{dataset}.{staging_name}"

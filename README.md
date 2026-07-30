@@ -151,6 +151,7 @@ GRAFANA_PASSWORD = ""
 | `BIGQUERY_PROJECT_ID` | `applied-groove-464707-r8` | BigQuery 项目 ID |
 | `BIGQUERY_DATASET` | `Daily_reports` | BigQuery 数据集 |
 | `BIGQUERY_RETURN_TABLE` | `BN_Return_temp` | Binance 日收益目标表 |
+| `BIGQUERY_CREDENTIALS_PATH` | 项目根目录下的 `applied-groove-464707-r8-bef90a05e7c9.json` | BigQuery 服务账号密钥路径 |
 | `LARGE_EQUITY_CHANGE_USDT_THRESHOLD` | `100` | 分钟级大额资金变动告警的 USDT 阈值 |
 | `LARGE_EQUITY_CHANGE_BTC_THRESHOLD` | `1` | 分钟级大额资金变动告警的 BTC 阈值 |
 | `GRAFANA_URL` | `http://127.0.0.1:3000` | Grafana 地址 |
@@ -343,10 +344,10 @@ minute_snapshots/<exchange>_<account>_<ccy>_minute_snapshot.csv
 ### Binance 日收益写入 BigQuery
 
 设置 `BIGQUERY_RETURN_ENABLED=1` 后，日级任务会把仅属于 Binance 的账户写入
-`BIGQUERY_PROJECT_ID.BIGQUERY_DATASET.BIGQUERY_RETURN_TABLE`。认证使用 Google
-Application Default Credentials；自托管环境通常通过
-`GOOGLE_APPLICATION_CREDENTIALS=/安全目录/service-account.json` 指定服务账号文件，
-不要把密钥放进仓库。
+`BIGQUERY_PROJECT_ID.BIGQUERY_DATASET.BIGQUERY_RETURN_TABLE`。程序默认读取项目根目录
+下的 `applied-groove-464707-r8-bef90a05e7c9.json`；也可以通过
+`BIGQUERY_CREDENTIALS_PATH=/安全目录/service-account.json` 覆盖路径。密钥文件已由
+`.gitignore` 排除，不要把它提交进仓库。
 
 写入字段与旧表 `BN_Return_temp` 保持一致，收益率使用小数形式，例如 `0.125`
 表示 `12.5%`。账户名继续移除下划线以兼容历史数据。系统先写入唯一临时表，再按

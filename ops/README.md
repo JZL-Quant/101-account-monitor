@@ -16,6 +16,49 @@ source .venv/bin/activate
 | `ops.sync_grafana_dashboards` | 创建或修复 Grafana Panel | 是；`--dry-run` 除外 |
 | `ops.backfill_prometheus` | 检测 CSV/Prometheus 缺口并生成回灌 blocks | 默认否 |
 | `ops/backfill_prometheus.sh` | 一键停服、备份、导入并重启 Prometheus | 是，高风险操作 |
+| `ops.backfill_bigquery_returns` | 检测并回填 BigQuery 日收益缺口 | 默认否 |
+
+## 回填 BigQuery 日收益
+
+工具按 `(date, account)` 查询 `BN_Return_temp` 的已有记录，从分钟快照重算历史收益，只选择缺失键。默认使用旧 Binance monitor 的分钟 CSV，以保持历史表原有的账户估值口径；切换后的日期才建议使用 `--source account-monitor`。
+
+先执行 dry-run。它会计算但不会写入 BigQuery，并在 `runtime_logs/` 生成逐日期、逐账户的审计 CSV：
+
+```bash
+python -m ops.backfill_bigquery_returns \
+  --start-date 2026-07-10 \
+  --end-date 2026-07-23
+```
+
+重点检查报告中的状态：
+
+- `ready`：源数据可以计算，且目标键缺失。
+- `already_exists`：目标键已有一行，默认跳过。
+- `uncomputable`：当天或向前 30 天的有效参考点不足。
+- `source_error`：分钟 CSV 缺失或无法读取。
+
+确认 `ready` 数量和账户口径后，增加 `--execute` 才会通过 MERGE 写入：
+
+```bash
+python -m ops.backfill_bigquery_returns \
+  --start-date 2026-07-10 \
+  --end-date 2026-07-23 \
+  --execute
+```
+
+常用参数：
+
+- `--accounts Brioni_27 BV_5`：只处理指定账户，也支持逗号分隔。
+- `--source account-monitor`：改用新服务的 `minute_snapshots/`。
+- `--report /path/report.csv`：指定审计报告位置。
+- `--replace-existing`：也重算并 MERGE 已存在的键，只有确认要覆盖时使用。
+
+安全限制：
+
+- 结束日期必须早于 UTC 当天，避免把未结束的当天数据写成日结果。
+- 单次最多处理 366 天。
+- 执行前发现目标表存在重复 `(date, account)` 键时会拒绝写入。
+- 不加 `--execute` 永远不会修改 BigQuery。
 
 ## 历史分钟快照迁移
 

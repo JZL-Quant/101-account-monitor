@@ -65,13 +65,19 @@ MONITOR_NAV_PORT = int(os.getenv("MONITOR_NAV_PORT", "7007"))
 DAILY_HOUR = int(os.getenv("BINANCE_DAILY_HOUR", "10"))
 DAILY_MINUTE = int(os.getenv("BINANCE_DAILY_MINUTE", "31"))
 
-# Optional BigQuery persistence for daily Binance return rows. Authentication
-# uses Google Application Default Credentials, normally configured through
-# GOOGLE_APPLICATION_CREDENTIALS on self-hosted deployments.
-BIGQUERY_RETURN_ENABLED = os.getenv("BIGQUERY_RETURN_ENABLED", "0") == "1"
+# Optional BigQuery persistence for daily Binance return rows. By default the
+# service-account key is loaded from the project root; deployments can override
+# the path without changing code.
+BIGQUERY_RETURN_ENABLED = os.getenv("BIGQUERY_RETURN_ENABLED", "1") == "1"
 BIGQUERY_PROJECT_ID = os.getenv("BIGQUERY_PROJECT_ID", "applied-groove-464707-r8").strip()
 BIGQUERY_DATASET = os.getenv("BIGQUERY_DATASET", "Daily_reports").strip()
 BIGQUERY_RETURN_TABLE = os.getenv("BIGQUERY_RETURN_TABLE", "BN_Return_temp").strip()
+BIGQUERY_CREDENTIALS_PATH = Path(
+    os.getenv(
+        "BIGQUERY_CREDENTIALS_PATH",
+        str(PROJECT_ROOT / "applied-groove-464707-r8-bef90a05e7c9.json"),
+    )
+).expanduser()
 
 # 分钟级大额资金变动告警阈值。
 LARGE_EQUITY_CHANGE_THRESHOLDS = {
