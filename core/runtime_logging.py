@@ -32,6 +32,9 @@ _log_date_cache_day = None
 _log_date_cache = ()
 _log_date_cache_lock = threading.Lock()
 _LOG_DATE_PREFIX = re.compile(r"^(\d{4}-\d{2}-\d{2})")
+_RUNTIME_LOG_FILENAME = re.compile(
+    r"^runtime_(\d{8})(?:_(\d{6}))?\.log(?:\..*)?$"
+)
 
 
 class DailyRuntimeFileHandler(logging.FileHandler):
@@ -151,6 +154,53 @@ def _runtime_log_files():
     if not RUNTIME_LOG_DIR.exists():
         return []
     return sorted(path for path in RUNTIME_LOG_DIR.glob("*.log*") if path.is_file())
+
+
+def _runtime_log_timestamp(path: Path) -> datetime:
+    """Get a log's creation time from its name, falling back to modification time."""
+    match = _RUNTIME_LOG_FILENAME.match(path.name)
+    if match is not None:
+        time_text = match.group(2) or "000000"
+        return datetime.strptime(f"{match.group(1)}{time_text}", "%Y%m%d%H%M%S")
+    return datetime.fromtimestamp(path.stat().st_mtime)
+
+
+def cleanup_runtime_logs(retention_days: int = 7, now: datetime = None):
+    """Delete inactive runtime log files older than the retention period.
+
+    Returns ``(deleted_paths, failed_paths)``. The active file handler target is
+    always preserved, even if its filename or modification time is unexpectedly
+    old.
+    """
+    global _log_date_cache_day, _log_date_cache
+
+    if retention_days < 1:
+        raise ValueError("retention_days must be at least 1")
+
+    cutoff = (now or datetime.now()) - timedelta(days=retention_days)
+    active_path = None
+    if _shared_file_handler is not None:
+        active_path = Path(_shared_file_handler.baseFilename).resolve()
+
+    deleted_paths = []
+    failed_paths = []
+    for path in _runtime_log_files():
+        try:
+            if active_path is not None and path.resolve() == active_path:
+                continue
+            if _runtime_log_timestamp(path) >= cutoff:
+                continue
+            path.unlink()
+            deleted_paths.append(path)
+        except (OSError, ValueError):
+            failed_paths.append(path)
+
+    if deleted_paths:
+        with _log_date_cache_lock:
+            _log_date_cache_day = None
+            _log_date_cache = ()
+
+    return deleted_paths, failed_paths
 
 
 def _line_date(line: str):

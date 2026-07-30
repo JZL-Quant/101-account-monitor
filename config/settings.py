@@ -86,6 +86,7 @@ MIN_VALID_CALCULATION_VALUE = 1e-7
 
 # 单个运行日志最大 100 MiB；达到上限后按当前时间切换新文件。
 MAX_RUNTIME_LOG_BYTES = 1024 * 1024 * 1024
+RUNTIME_LOG_RETENTION_DAYS = int(os.getenv("RUNTIME_LOG_RETENTION_DAYS", "7"))
 
 
 def logger_level(log_name: str) -> str:

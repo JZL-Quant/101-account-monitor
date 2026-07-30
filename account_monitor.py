@@ -16,7 +16,7 @@ from core.large_equity_changes import (
     find_new_large_equity_changes,
 )
 from core.report_cards import build_group_schema2_card
-from core.runtime_logging import setup_runtime_logger
+from core.runtime_logging import cleanup_runtime_logs, setup_runtime_logger
 from core.scheduler import MonitorScheduler
 from config.settings import (
     ACCOUNTS_CONFIG_PATH,
@@ -26,6 +26,7 @@ from config.settings import (
     BIGQUERY_RETURN_TABLE,
     MIN_VALID_CALCULATION_VALUE,
     PROJECT_ROOT,
+    RUNTIME_LOG_RETENTION_DAYS,
 )
 
 # 更改工作目录为文件所在目录
@@ -694,12 +695,29 @@ async def update_annualized_metrics():
     cards = await build_daily_report_cards(accounts)
     await send_daily_report_cards(cards)
 
+
+def cleanup_expired_runtime_logs():
+    deleted_paths, failed_paths = cleanup_runtime_logs(RUNTIME_LOG_RETENTION_DAYS)
+    RUNTIME_LOGGER.info(
+        "[runtime_log_cleanup] deleted %d log file(s) older than %d days",
+        len(deleted_paths),
+        RUNTIME_LOG_RETENTION_DAYS,
+    )
+    if failed_paths:
+        RUNTIME_LOGGER.warning(
+            "[runtime_log_cleanup] failed to delete %d log file(s): %s",
+            len(failed_paths),
+            ", ".join(path.name for path in failed_paths),
+        )
+
+
 def start_monitor_scheduler():
     scheduler = MonitorScheduler(RUNTIME_LOGGER)
     scheduler.add_task("startup", update_bigquery_returns)
     scheduler.add_task("minute", update_metrics)
     # scheduler.add_task("minute", check_large_equity_changes)
     scheduler.add_task("daily", update_annualized_metrics)
+    scheduler.add_task("daily", cleanup_expired_runtime_logs)
     return scheduler
 
 if __name__ == '__main__':
