@@ -108,6 +108,13 @@ FEISHU_BOT_WEBHOOK_URLS = [
     "https://open.feishu.cn/open-apis/bot/v2/hook/群机器人-webhook-1",
     "https://open.feishu.cn/open-apis/bot/v2/hook/群机器人-webhook-2",
 ]
+FEISHU_WEBHOOK_ROUTES = {
+    "default": FEISHU_BOT_WEBHOOK_URLS,
+    "daily_report": [],
+    "return_performance": [],
+    "equity_change_alert": [],
+    "test": ["https://open.feishu.cn/open-apis/bot/v2/hook/测试群-webhook"],
+}
 FEISHU_APP_ID = ""
 FEISHU_APP_SECRET = ""
 
@@ -132,7 +139,9 @@ GRAFANA_PASSWORD = ""
 
 - 仅发送文字或卡片到群机器人：只需在 `FEISHU_BOT_WEBHOOK_URLS` 列表中添加群机器人的 webhook，不需要 `APP_ID` 和 `APP_SECRET`。
 - 向飞书上传图片并把图片用于消息卡片：需要 `FEISHU_APP_ID` 和 `FEISHU_APP_SECRET`，服务会用它们获取 tenant access token。
-- 每个群对应列表中的一个 webhook；添加或删除列表项即可调整转发群。
+- `default` 是默认发送列表；普通任务路由缺失、为 `None` 或为空列表时，静默使用 `default`。
+- `test` 是严格测试路由，缺失或为空时拒绝发送，不会回退到正式群。
+- 日报、收益率总览和资金变动可分别配置任务路由；不需要单独分群时保留空列表即可。
 
 ### 4. 配置非敏感环境变量
 

@@ -56,9 +56,9 @@ class MonitorScheduler:
     async def _run(self):
         await self._safe_run("startup minute tasks", self._run_task_type("minute"))
         await self._safe_run("one-time startup tasks", self._run_task_type("startup"))
-        # Startup deliberately does not run the complete daily task because
-        # that path also sends Feishu reports. If today's scheduled time has
-        # passed, wait until the next day instead of performing a catch-up.
+        # Startup does not run the production daily task. Any startup preview
+        # report is registered separately and uses the strict Feishu test route.
+        # If today's scheduled time has passed, do not catch up the production task.
         now = datetime.now()
         if (now.hour, now.minute) >= (self._daily_hour, self._daily_minute):
             self._last_daily_run_date = now.date()

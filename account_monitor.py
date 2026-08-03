@@ -9,13 +9,13 @@ from core.bigquery_returns import (
     completed_reference_date,
     merge_rows_to_bigquery,
 )
+from core.daily_report import build_daily_report
 from core.metrics import AccountMetricsStore
 from core.feishu import NOTIFIER
-from core.large_equity_changes import (
-    build_large_equity_change_card,
-    find_new_large_equity_changes,
-)
-from core.report_cards import build_group_schema2_card
+from core.feishu.daily_report_card import build_daily_detail_cards
+from core.feishu.equity_change_card import build_large_equity_change_card
+from core.feishu.performance_summary_card import build_return_performance_card
+from core.large_equity_changes import find_new_large_equity_changes
 from core.runtime_logging import cleanup_runtime_logs, setup_runtime_logger
 from core.scheduler import MonitorScheduler
 from config.settings import (
@@ -427,168 +427,6 @@ async def calculate_post_dividend_annualized_return(account_name, account_info, 
     except Exception as e:
         RUNTIME_LOGGER.exception("计算分红后年化收益率失败 (%s)", account_name)
 
-async def calculate_combined_period_annualized_return(accounts: dict, period_days: int):
-    """按实际权益加权，计算账户组在指定天数窗口的组合年化收益率。"""
-    total_equity = 0.0
-    weighted_return = 0.0
-
-    for account_name in accounts:
-        try:
-            actual_equity = account_metrics.read(account_name, "report_actual_equity")
-            # 取对应周期的年化收益率（例如 7d、30d）
-            if period_days == 1:
-                ar = account_metrics.read(account_name, f'annualized_return_24h')
-            else:
-                ar = account_metrics.read(account_name, f'annualized_return_{period_days}d')
-
-            actual_equity = safe_metric_val(actual_equity)
-            ar = safe_metric_val(ar)
-            if actual_equity is None or ar is None or actual_equity <= MIN_VALID_CALCULATION_VALUE:
-                RUNTIME_LOGGER.warning("%s actual_equity 或收益率无效，跳过", account_name)
-                continue
-
-            total_equity += actual_equity
-            weighted_return += actual_equity * ar
-
-        except Exception as e:
-            RUNTIME_LOGGER.exception("处理账户 %s 出错", account_name)
-            continue
-
-    if total_equity <= MIN_VALID_CALCULATION_VALUE:
-        RUNTIME_LOGGER.warning("所有账户实际净值为 0，无法计算加权收益率")
-        return None
-
-    combined_annualized_return = weighted_return / total_equity
-    combined_annualized_return = safe_metric_val(combined_annualized_return)
-    if combined_annualized_return is None:
-        RUNTIME_LOGGER.warning("组合收益率不是有限数")
-        return None
-    RUNTIME_LOGGER.info("Binance 组合 %s 日加权年化收益率: %.6f%%", period_days, combined_annualized_return)
-    return combined_annualized_return
-
-def calculate_combined_return_from_results(sorted_results, metric_key):
-    """用账户结果中的收益率和实际权益，计算组合收益兜底值。"""
-    total_equity = 0.0
-    weighted_return = 0.0
-
-    for res in sorted_results:
-        actual_equity = safe_metric_val(res.get("actual_equity"))
-        annualized_return = safe_metric_val(res.get(metric_key))
-        if actual_equity is None or annualized_return is None or actual_equity <= 0:
-            continue
-        total_equity += actual_equity
-        weighted_return += actual_equity * annualized_return
-
-    if total_equity <= MIN_VALID_CALCULATION_VALUE:
-        return None
-    return safe_metric_val(weighted_return / total_equity)
-
-def calculate_group_interest_rate_percent(sorted_results, group_accounts):
-    """按实际权益加权计算组内资金成本基准，返回百分比。"""
-    total_equity = 0.0
-    weighted_rate = 0.0
-    rates = []
-
-    for res in sorted_results:
-        account_name = res.get("account_name")
-        account_info = group_accounts.get(account_name, {})
-        rate = safe_metric_val(account_info.get("interest_rate"))
-        if rate is None:
-            continue
-
-        rate_pct = rate * 100
-        rates.append(rate_pct)
-        actual_equity = safe_metric_val(res.get("actual_equity"))
-        if actual_equity is not None and actual_equity > 0:
-            total_equity += actual_equity
-            weighted_rate += actual_equity * rate_pct
-
-    if total_equity > MIN_VALID_CALCULATION_VALUE:
-        return safe_metric_val(weighted_rate / total_equity)
-    if rates:
-        return sum(rates) / len(rates)
-    return None
-
-def get_group_ccy(group_accounts):
-    """从组内账户读取展示币种；缺失时默认 USDT。"""
-    ccys = [info.get("ccy") for info in group_accounts.values() if info.get("ccy")]
-    return ccys[0] if ccys else "USDT"
-
-async def build_combined_returns(group, sorted_results: list) -> dict:
-    """计算组内 24h、7d、30d 组合收益；失败时使用账户结果加权兜底。"""
-    combined = {"ar24h": None, "ar7d": None, "ar30d": None}
-    if group["calc_combined"] and group["accounts"]:
-        try:
-            combined["ar24h"] = await calculate_combined_period_annualized_return(group["accounts"], 1)
-            combined["ar7d"] = await calculate_combined_period_annualized_return(group["accounts"], 7)
-            combined["ar30d"] = await calculate_combined_period_annualized_return(group["accounts"], 30)
-        except Exception as e:
-            RUNTIME_LOGGER.exception("[annualized_metrics] group %s combined return failed", group["title"])
-
-    for combined_key, result_key in [("ar24h", "ar24h"), ("ar7d", "ar7d"), ("ar30d", "ar30d")]:
-        if safe_metric_val(combined.get(combined_key)) is None:
-                fallback_val = calculate_combined_return_from_results(sorted_results, result_key)
-                if fallback_val is not None:
-                    combined[combined_key] = fallback_val
-                    RUNTIME_LOGGER.info("%s %s fallback weighted return: %.6f%%", group["title"], combined_key, fallback_val)
-    return combined
-
-async def build_daily_report_cards(account_map: dict) -> list:
-    """读取已刷新的指标快照，完成账户分组聚合，并生成待发送的日报卡片。"""
-    cards = []
-    today_str = datetime.today().strftime('%Y-%m-%d')
-    report_groups = {}
-    for account_name, account_info in account_map.items():
-        try:
-            actual_equity = account_metrics.read(account_name, "report_actual_equity")
-            ar7d = account_metrics.read(account_name, 'annualized_return_7d')
-            ar30d = account_metrics.read(account_name, 'annualized_return_30d')
-            ar24h = account_metrics.read(account_name, 'annualized_return_24h')
-            result = {
-                "account_name": account_name,
-                "display_name": account_name,
-                "actual_equity": actual_equity,
-                "ar7d": ar7d,
-                "ar30d": ar30d,
-                "ar24h": ar24h,
-                "ar24h_val": -999.0 if math.isnan(ar24h) else ar24h,
-            }
-        except Exception:
-            RUNTIME_LOGGER.exception("[annualized_metrics] account %s collect failed", account_name)
-            continue
-
-        exchange_id = account_info.get("exchange_id", "binance")
-        exchange_label = account_info.get("exchange_label", "Exchange")
-        account_group = account_info.get("account_group", "Other")
-        ccy = account_info.get("ccy", "USDT").upper()
-        group_key = f"{exchange_id}_{account_group.lower()}_{ccy.lower()}"
-        if group_key not in report_groups:
-            report_groups[group_key] = {
-                "key": group_key,
-                "title": f"{exchange_label}_{account_group}_{ccy}",
-                "calc_combined": True,
-                "accounts": {},
-                "results": [],
-                "ccy": ccy,
-            }
-        report_groups[group_key]["accounts"][account_name] = account_info
-        report_groups[group_key]["results"].append(result)
-
-    for group in [group for group in report_groups.values() if group["results"]]:
-        sorted_results = sorted(group["results"], key=lambda x: x["ar24h_val"], reverse=True)
-        group_interest_rate = calculate_group_interest_rate_percent(sorted_results, group["accounts"])
-        group["benchmark"] = group_interest_rate if group_interest_rate is not None else 0.0
-        group["ccy"] = get_group_ccy(group["accounts"])
-        combined = await build_combined_returns(group, sorted_results)
-        cards.append(build_group_schema2_card(group, sorted_results, today_str, combined))
-    return cards
-
-async def send_daily_report_cards(cards: list):
-    """并发发送已生成的日报卡片。"""
-    if cards:
-        await asyncio.gather(*(NOTIFIER.send_card(card) for card in cards))
-
-
 async def check_large_equity_changes():
     """分钟级任务：检查并合并发送本分钟发现的大额资金变动。"""
     detected_changes = []
@@ -603,7 +441,10 @@ async def check_large_equity_changes():
                 "[large_equity_change] account %s check failed", account_name
             )
     if detected_changes:
-        await NOTIFIER.send_card(build_large_equity_change_card(detected_changes))
+        await NOTIFIER.send_card(
+            build_large_equity_change_card(detected_changes),
+            route="equity_change_alert",
+        )
 
 
 async def update_metrics():
@@ -676,8 +517,8 @@ async def update_bigquery_returns(snapshot_frames=None):
         )
 
 
-async def update_annualized_metrics():
-    """日级任务入口：编排 metrics 计算、日报卡片生成和发送。"""
+async def refresh_annualized_metrics():
+    """刷新日报所需的账户指标，并返回本轮读取的分钟快照。"""
     snapshot_frames = {}
     for account_name, account_info in list(accounts.items()):
         try:
@@ -692,10 +533,41 @@ async def update_annualized_metrics():
         except Exception:
             RUNTIME_LOGGER.exception("[annualized_metrics] account %s refresh failed", account_name)
 
+    return snapshot_frames
+
+
+async def update_annualized_metrics():
+    """日级任务入口：刷新指标并向正式路由发送日报。"""
+    snapshot_frames = await refresh_annualized_metrics()
+
     await update_bigquery_returns(snapshot_frames)
 
-    cards = await build_daily_report_cards(accounts)
-    await send_daily_report_cards(cards)
+    daily_report = build_daily_report(accounts, account_metrics)
+    daily_detail_cards = build_daily_detail_cards(daily_report)
+    performance_card = build_return_performance_card(
+        daily_report.performance_sections,
+        daily_report.report_date,
+    )
+
+    await NOTIFIER.send_card(daily_detail_cards, route="daily_report")
+    # 收益表现总览最后发送，保证它位于本次日报消息的最下方。
+    await NOTIFIER.send_card(performance_card, route="return_performance")
+
+
+async def update_annualized_metrics_test():
+    """启动任务：刷新同一套指标，并仅向严格 test 路由发送日报。"""
+    await refresh_annualized_metrics()
+
+    daily_report = build_daily_report(accounts, account_metrics)
+    daily_detail_cards = build_daily_detail_cards(daily_report)
+    performance_card = build_return_performance_card(
+        daily_report.performance_sections,
+        daily_report.report_date,
+    )
+
+    await NOTIFIER.send_card(daily_detail_cards, route="test")
+    # 测试群同样保持收益表现总览位于最后。
+    await NOTIFIER.send_card(performance_card, route="test")
 
 
 def cleanup_expired_runtime_logs():
@@ -716,6 +588,7 @@ def cleanup_expired_runtime_logs():
 def start_monitor_scheduler():
     scheduler = MonitorScheduler(RUNTIME_LOGGER)
     scheduler.add_task("startup", update_bigquery_returns)
+    scheduler.add_task("startup", update_annualized_metrics_test)
     scheduler.add_task("minute", update_metrics)
     # scheduler.add_task("minute", check_large_equity_changes)
     scheduler.add_task("daily", update_annualized_metrics)

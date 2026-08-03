@@ -7,11 +7,19 @@ import argparse
 import json
 import math
 import re
-import statistics
 import sys
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from core.feishu.performance_summary_card import build_return_performance_card
+from core.return_attention import build_return_performance_sections
 
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -24,11 +32,6 @@ if hasattr(sys.stderr, "reconfigure"):
 FEISHU_TEST_BOT_WEBHOOK_URL = "https://open.feishu.cn/open-apis/bot/v2/hook/af6b4e9f-9981-4c78-bc18-9b1bccc3e620"
 ACCOUNT_MONITOR_BASE_URL = "http://127.0.0.1:7007"
 
-MIN_VALID_GROUP_SIZE = 5
-MIN_VALID_STANDARD_DEVIATION = 1e-7
-ATTENTION_Z_THRESHOLD = -1.5
-PRIORITY_ATTENTION_Z_THRESHOLD = -2.0
-OUTPERFORM_Z_THRESHOLD = 2.5
 PERIODS = (
     ("24h 收益率表现", "anomaly_24h_table", "ar24h", "annualized_return_24h"),
     ("7D 收益率表现", "anomaly_7d_table", "ar7d", "annualized_return_7d"),
@@ -112,197 +115,18 @@ def collect_account_returns() -> tuple[list[dict], list[str], int]:
             continue
         results.append(
             {
-                "account": account_name,
+                "account_name": account_name,
                 "exchange_id": exchange.lower(),
                 "exchange_label": exchange,
                 "ccy": ccy,
-                **returns,
+                "annualized_return_24h": returns.get("ar24h"),
+                "annualized_return_7d": returns.get("ar7d"),
             }
         )
         if missing_metrics:
             skipped.append(f"{account_name}: 缺少 {', '.join(missing_metrics)}")
 
     return results, skipped, len(accounts)
-
-
-def build_real_sections(results: list[dict]) -> tuple[list[tuple], list[str]]:
-    """Calculate same-exchange/same-ccy population Z scores for each period."""
-    sections = []
-    skipped_groups = []
-
-    for title, element_id, metric_key, _ in PERIODS:
-        grouped: dict[tuple[str, str], list[dict]] = {}
-        for result in results:
-            value = result.get(metric_key)
-            if value is None or not math.isfinite(float(value)):
-                continue
-            group_key = (result["exchange_id"], result["ccy"])
-            grouped.setdefault(group_key, []).append(result)
-
-        flagged = []
-        for (_, ccy), group_results in grouped.items():
-            exchange_label = str(group_results[0]["exchange_label"])
-            group_label = f"{exchange_label}-{ccy}"
-            if len(group_results) < MIN_VALID_GROUP_SIZE:
-                skipped_groups.append(
-                    f"{title}/{group_label}: 有效账户 {len(group_results)} 个，少于 {MIN_VALID_GROUP_SIZE} 个"
-                )
-                continue
-
-            values = [float(result[metric_key]) for result in group_results]
-            group_mean = statistics.fmean(values)
-            group_std = statistics.pstdev(values)
-            if not math.isfinite(group_std) or group_std <= MIN_VALID_STANDARD_DEVIATION:
-                skipped_groups.append(f"{title}/{group_label}: 标准差为 0")
-                continue
-
-            for result in group_results:
-                value = float(result[metric_key])
-                z_score = (value - group_mean) / group_std
-                if z_score <= ATTENTION_Z_THRESHOLD or z_score >= OUTPERFORM_Z_THRESHOLD:
-                    flagged.append(
-                        (
-                            z_score,
-                            (
-                                group_label,
-                                result["account"],
-                                f"{value:+.2f}%",
-                                f"{group_mean:+.2f}%",
-                                f"{group_std:.2f}%",
-                                f"{z_score:.2f}",
-                            ),
-                        )
-                    )
-
-        rows = [row for _, row in sorted(flagged, key=lambda item: item[0])]
-        sections.append((title, element_id, rows))
-
-    return sections, skipped_groups
-
-
-def markdown(content: str) -> dict:
-    return {"tag": "markdown", "content": content}
-
-
-def anomaly_table(element_id: str, rows: list[tuple[str, str, str, str, str, str]]) -> dict:
-    table_rows = []
-    for group, account, return_value, mean, std_dev, z_score in rows:
-        numeric_z = float(z_score)
-        if numeric_z >= OUTPERFORM_Z_THRESHOLD:
-            marker = "🟢"
-        elif numeric_z <= PRIORITY_ATTENTION_Z_THRESHOLD:
-            marker = "🟠"
-        else:
-            marker = "🟡"
-        table_rows.append(
-            {
-                "group": group,
-                "account": f"{marker} {account}",
-                "return": return_value,
-                "mean": mean,
-                "std_dev": std_dev,
-                "z_score": z_score,
-            }
-        )
-
-    return {
-        "tag": "table",
-        "element_id": element_id,
-        "page_size": min(max(len(rows), 1), 10),
-        "row_height": "middle",
-        "header_style": {
-            "background_style": "none",
-            "bold": True,
-            "text_align": "center",
-            "lines": 1,
-        },
-        "columns": [
-            {
-                "name": "account",
-                "display_name": "账户",
-                "data_type": "text",
-                "horizontal_align": "center",
-                "vertical_align": "center",
-                "width": "120px",
-            },
-            {
-                "name": "return",
-                "display_name": "收益率",
-                "data_type": "text",
-                "horizontal_align": "center",
-                "vertical_align": "center",
-                "width": "90px",
-            },
-            {
-                "name": "mean",
-                "display_name": "同组均值",
-                "data_type": "text",
-                "horizontal_align": "center",
-                "vertical_align": "center",
-                "width": "90px",
-            },
-            {
-                "name": "std_dev",
-                "display_name": "标准差",
-                "data_type": "text",
-                "horizontal_align": "center",
-                "vertical_align": "center",
-                "width": "90px",
-            },
-            {
-                "name": "z_score",
-                "display_name": "Z 值",
-                "data_type": "text",
-                "horizontal_align": "center",
-                "vertical_align": "center",
-                "width": "80px",
-            },
-            {
-                "name": "group",
-                "display_name": "交易所-本位",
-                "data_type": "text",
-                "horizontal_align": "center",
-                "vertical_align": "center",
-                "width": "120px",
-            },
-        ],
-        "rows": table_rows,
-    }
-
-
-def build_card(sections: list[tuple], report_date) -> dict:
-    elements = [
-        markdown(
-            "**Z值表示偏离同组均值多少个标准差。**\n"
-            f"<font color='green'>**表现突出**</font>：Z ≥ {OUTPERFORM_Z_THRESHOLD:g}，"
-            f"<font color='orange'>**关注**</font>：{PRIORITY_ATTENTION_Z_THRESHOLD:g} < Z ≤ {ATTENTION_Z_THRESHOLD:g}，"
-            f"<font color='red'>**重点关注**</font>：Z ≤ {PRIORITY_ATTENTION_Z_THRESHOLD:g}。"
-        )
-    ]
-    for title, element_id, rows in sections:
-        elements.append(markdown(f"### <font color='blue'>{title}</font>"))
-        elements.append(anomaly_table(element_id, rows))
-
-    return {
-        "schema": "2.0",
-        "config": {"update_multi": True},
-        "header": {
-            "title": {"tag": "plain_text", "content": "收益率账户表现总览"},
-            "subtitle": {"tag": "plain_text", "content": report_date.strftime("%Y-%m-%d")},
-            "template": "blue",
-            "icon": {"tag": "standard_icon", "token": "chart-bar"},
-            "padding": "12px 16px 12px 16px",
-        },
-        "body": {
-            "direction": "vertical",
-            "horizontal_spacing": "8px",
-            "vertical_spacing": "8px",
-            "horizontal_align": "left",
-            "vertical_align": "top",
-            "padding": "4px 4px 4px 4px",
-            "elements": elements,
-        },
-    }
 
 
 def send(webhook_url: str, payload: dict) -> dict:
@@ -351,15 +175,16 @@ def main() -> int:
     except RuntimeError as exc:
         print(f"读取 account monitor 指标失败：{exc}", file=sys.stderr)
         return 1
-    sections, skipped_groups = build_real_sections(results)
+    sections = build_return_performance_sections(results)
+    skipped_groups = []
     report_date = report_date_china()
     payload = {
         "msg_type": "interactive",
-        "card": build_card(sections, report_date),
+        "card": build_return_performance_card(sections, report_date),
     }
 
     anomaly_counts = ", ".join(
-        f"{title.split()[0]}={len(rows)}" for title, _, rows in sections
+        f"{section['period']}={len(section['rows'])}" for section in sections
     )
     print(
         f"数据日期={report_date}，配置账户={configured_account_count}，"

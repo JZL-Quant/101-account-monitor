@@ -42,6 +42,33 @@ FEISHU_BOT_WEBHOOK_URLS = tuple(
     )
 )
 
+_configured_feishu_routes = _secret("FEISHU_WEBHOOK_ROUTES", None)
+if not isinstance(_configured_feishu_routes, dict):
+    _configured_feishu_routes = {}
+
+
+def _normalized_webhook_urls(value):
+    if isinstance(value, str):
+        value = (value,)
+    if not isinstance(value, (list, tuple)):
+        return ()
+    return tuple(
+        dict.fromkeys(
+            url.strip()
+            for url in value
+            if isinstance(url, str) and url.strip()
+        )
+    )
+
+
+FEISHU_WEBHOOK_ROUTES = {
+    str(route_name): _normalized_webhook_urls(webhook_urls)
+    for route_name, webhook_urls in _configured_feishu_routes.items()
+    if isinstance(route_name, str) and route_name.strip()
+}
+if not FEISHU_WEBHOOK_ROUTES.get("default"):
+    FEISHU_WEBHOOK_ROUTES["default"] = FEISHU_BOT_WEBHOOK_URLS
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ACCOUNTS_CONFIG_PATH = PROJECT_ROOT / "accounts_config.yaml"

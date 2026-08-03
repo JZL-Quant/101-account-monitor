@@ -342,4 +342,15 @@ def build_group_schema2_card(cfg, sorted_results, today_str, combined, chart_ima
         "header": _card_header(title, today_str)
     }
 
+
+def build_daily_detail_cards(report):
+    """把日报中的各账户组转换为飞书明细卡片。"""
+    report_date = report.report_date.strftime("%Y-%m-%d")
+    return [
+        build_group_schema2_card(
+            item["group"], item["results"], report_date, item["combined"]
+        )
+        for item in report.detail_groups
+    ]
+
 # ---------- 加载 binance_config.yaml 配置 ----------
