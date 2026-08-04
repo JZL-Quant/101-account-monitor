@@ -467,7 +467,10 @@ async def check_large_equity_changes():
 
 async def update_metrics():
     """分钟级任务：更新最新实际权益、24 小时点对点收益和 1 小时中位数收益。"""
-    for account_name, account_info in list(_default_feishu_accounts(accounts).items()):
+    # Prometheus/Grafana metrics apply to every active account.  The
+    # skip_default_feishu flag only controls notification delivery and must
+    # not suppress metric refreshes.
+    for account_name, account_info in list(accounts.items()):
         try:
             snapshot_df = read_minute_snapshot_file(account_info["minute_snapshot_file"])
             if snapshot_df is None:
@@ -584,7 +587,7 @@ async def send_kucoin_daily_report():
     kc_report = build_daily_report(kc_accounts, account_metrics)
     await NOTIFIER.send_card(
         build_daily_detail_cards(kc_report),
-        route="kc",
+        route="test",
         require_route=True,
     )
 
