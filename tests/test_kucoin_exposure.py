@@ -6,6 +6,8 @@ from pathlib import Path
 from kucoin_exposure.auth import SessionSigner, credentials_match
 from kucoin_exposure.calculator import (
     build_hedge_rows,
+    calculate_margin_rates,
+    calculate_opening_risk_gate,
     check_position_conversion,
     floor_to_increment,
 )
@@ -14,6 +16,34 @@ from kucoin_exposure.repository import ExposureRepository
 
 
 class CalculatorTests(unittest.TestCase):
+    def test_margin_rates_match_superfasttrading_safety_multiples(self):
+        mmr, imr = calculate_margin_rates(
+            {
+                "riskRatio": "0.0085517383",
+                "adjustedEquity": "49.9358942670",
+                "im": "3.8681041666",
+                "mm": "0.3713380000",
+            }
+        )
+        self.assertAlmostEqual(float(mmr), 1 / 0.0085517383)
+        self.assertAlmostEqual(float(imr), 49.9358942670 / 3.8681041666)
+
+    def test_opening_risk_gate_matches_superfasttrading_thresholds(self):
+        risky = calculate_opening_risk_gate(Decimal("35.21"), Decimal("1.19"))
+        self.assertTrue(risky["is_risky"])
+        self.assertFalse(risky["is_safe"])
+        self.assertEqual(risky["result"], "禁止开仓")
+
+        safe = calculate_opening_risk_gate(Decimal("6.45"), Decimal("1.78"))
+        self.assertFalse(safe["is_risky"])
+        self.assertTrue(safe["is_safe"])
+        self.assertEqual(safe["result"], "允许恢复开仓")
+
+        hysteresis = calculate_opening_risk_gate(Decimal("35.21"), Decimal("1.384"))
+        self.assertFalse(hysteresis["is_risky"])
+        self.assertFalse(hysteresis["is_safe"])
+        self.assertEqual(hysteresis["result"], "保持当前开仓状态")
+
     def test_spot_and_short_futures_are_nettted_by_base_quantity(self):
         balances = [
             SpotBalance(
@@ -22,6 +52,7 @@ class CalculatorTests(unittest.TestCase):
                 balance=Decimal("1"),
                 available=Decimal("0.9"),
                 holds=Decimal("0.1"),
+                equity=Decimal("1"),
             )
         ]
         positions = [
@@ -108,6 +139,7 @@ class CalculatorTests(unittest.TestCase):
                 balance=Decimal("0.00000015"),
                 available=Decimal("0.00000015"),
                 holds=Decimal("0"),
+                equity=Decimal("0.00000015"),
             )
         ]
         rows = build_hedge_rows(
@@ -125,6 +157,32 @@ class CalculatorTests(unittest.TestCase):
         self.assertEqual(rows[0].mismatch_percent, Decimal("0"))
         self.assertEqual(rows[0].status, "已对冲")
 
+    def test_uta_liability_is_not_subtracted_twice(self):
+        balances = [
+            SpotBalance(
+                currency="BTC",
+                account_type="unified",
+                balance=Decimal("-1.00"),
+                available=Decimal("0"),
+                holds=Decimal("0"),
+                liability=Decimal("1.01"),
+                equity=Decimal("-1.01"),
+            )
+        ]
+        rows = build_hedge_rows(
+            balances,
+            [],
+            {},
+            {"BTC": Decimal("100")},
+            aliases={},
+            quote_currency="USDT",
+            matched_threshold_percent=1,
+            warning_threshold_percent=5,
+            dust_value_usdt=1,
+        )
+        self.assertEqual(rows[0].spot_qty, Decimal("-1.01"))
+        self.assertEqual(rows[0].net_value, Decimal("-101.00"))
+
     def test_excluded_asset_is_displayed_as_spot_reserve(self):
         balances = [
             SpotBalance(
@@ -133,6 +191,7 @@ class CalculatorTests(unittest.TestCase):
                 balance=Decimal("1.5"),
                 available=Decimal("1.5"),
                 holds=Decimal("0"),
+                equity=Decimal("1.5"),
             )
         ]
         rows = build_hedge_rows(

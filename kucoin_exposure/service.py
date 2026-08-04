@@ -6,7 +6,13 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-from .calculator import build_hedge_rows, floor_to_increment, normalize_asset
+from .calculator import (
+    build_hedge_rows,
+    calculate_margin_rates,
+    calculate_opening_risk_gate,
+    floor_to_increment,
+    normalize_asset,
+)
 from .client import KucoinAPIError, KucoinClient
 from .config import AppConfig
 from .feishu import FeishuNotifier
@@ -22,8 +28,6 @@ from .repository import ExposureRepository
 
 
 LOGGER = logging.getLogger("kucoin_exposure")
-
-
 class ExposureService:
     def __init__(
         self,
@@ -141,31 +145,62 @@ class ExposureService:
         hedge_rows: list[HedgeRow],
         futures_account: dict[str, Any],
     ) -> dict[str, Any]:
+        # “敞口”按现货和合约相加后的净额统计，不再把合约名义价值误称为敞口。
+        # 配置为储备的资产（目前为 KCS）不参与多空敞口汇总。
         long_exposure = sum(
-            (position.mark_value for position in futures_positions if position.base_qty > 0),
+            (
+                row.net_value
+                for row in hedge_rows
+                if (
+                    not row.excluded_from_hedge
+                    and row.status != "已对冲"
+                    and row.net_value > ZERO
+                )
+            ),
             ZERO,
         )
         short_exposure = sum(
-            (position.mark_value for position in futures_positions if position.base_qty < 0),
+            (
+                abs(row.net_value)
+                for row in hedge_rows
+                if (
+                    not row.excluded_from_hedge
+                    and row.status != "已对冲"
+                    and row.net_value < ZERO
+                )
+            ),
             ZERO,
         )
+        spot_total_position = sum(
+            (
+                abs(row.spot_qty * row.price)
+                for row in hedge_rows
+                if not row.excluded_from_hedge
+            ),
+            ZERO,
+        )
+        futures_total_position = sum(
+            (abs(position.mark_value) for position in futures_positions),
+            ZERO,
+        )
+        mmr, imr = calculate_margin_rates(futures_account)
+        opening_risk_gate = calculate_opening_risk_gate(mmr, imr)
         payload = {
             "sampled_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "display_dust_value_usdt": self.config.hedge.display_dust_value_usdt,
             "summary": {
                 "account_equity": futures_account.get("equity", 0),
                 "available_balance": futures_account.get(
                     "availableMargin", 0
                 ),
-                "unrealised_pnl": sum(
-                    (position.unrealised_pnl for position in futures_positions),
-                    ZERO,
-                ),
+                "spot_total_position": spot_total_position,
+                "futures_total_position": futures_total_position,
+                "mmr": mmr,
+                "imr": imr,
+                "opening_risk_gate": opening_risk_gate,
                 "long_exposure": long_exposure,
                 "short_exposure": short_exposure,
-                "net_futures_exposure": long_exposure - short_exposure,
-                "conversion_all_ok": all(
-                    position.conversion_ok for position in futures_positions
-                ),
+                "net_exposure": long_exposure - short_exposure,
             },
             "hedges": hedge_rows,
             "spot_balances": spot_balances,
@@ -211,7 +246,7 @@ class ExposureService:
     async def latest(self) -> dict[str, Any]:
         payload = self._latest or await self.repository.latest_success()
         attempt = await self.repository.last_attempt()
-        actions = await self.repository.recent_trade_actions()
+        equity_history = await self.repository.equity_history()
         if payload is None:
             payload = {
                 "sampled_at": None,
@@ -231,7 +266,7 @@ class ExposureService:
             "stale": stale,
             "last_attempt": attempt,
             "trading_enabled": self.config.trading.enabled,
-            "actions": actions,
+            "equity_history": equity_history,
         }
 
     async def preview_close(self, asset: str) -> dict[str, Any]:

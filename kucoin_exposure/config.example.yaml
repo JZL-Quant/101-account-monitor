@@ -63,6 +63,8 @@ hedge:
   warning_threshold_percent: 5
   # 净敞口价值低于此 USDT 金额时按灰尘余额处理，显示“已对冲”。
   dust_value_usdt: 1
+  # 仅控制页面隐藏小额仓位，不影响敞口状态、报警或平仓逻辑。
+  display_dust_value_usdt: 0.1
 
 # KuCoin 现货和合约可能使用不同的币种代码，在这里统一。
 symbols:

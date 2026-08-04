@@ -18,6 +18,7 @@ from .calculator import check_position_conversion
 from .models import FuturesPosition, SpotBalance, SpotSymbol, ZERO, decimal_value
 
 
+# 账户监控为低频查询，使用 KuCoin 官方公网 UTA 域名；colo 仅供交易链路。
 UTA_BASE_URL = "https://api.kucoin.com"
 # UTA 的公开 instrument 返回字段仍在快速迭代。合约 multiplier 暂用 KuCoin
 # 经典公开合约元数据交叉补齐；该请求不涉及账户模式或 API Key。
@@ -243,7 +244,8 @@ class KucoinClient:
             for item in account.get("currencies", []):
                 balance = decimal_value(item.get("balance"))
                 liability = decimal_value(item.get("liability"))
-                equity = decimal_value(item.get("equity"), balance - liability)
+                # UTA balance 本身带方向；缺少 equity 时回退到 balance，不能再扣一次 liability。
+                equity = decimal_value(item.get("equity"), balance)
                 if balance == ZERO and liability == ZERO and equity == ZERO:
                     continue
                 result.append(

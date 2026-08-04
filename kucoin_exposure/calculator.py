@@ -2,11 +2,58 @@ from __future__ import annotations
 
 from collections import defaultdict
 from decimal import Decimal
+from typing import Any
 
-from .models import FuturesPosition, HedgeRow, SpotBalance, SpotSymbol, ZERO
+from .models import FuturesPosition, HedgeRow, SpotBalance, SpotSymbol, ZERO, decimal_value
 
 
 TRADE_ACCOUNT_TYPES = {"trade", "trade_hf", "unified"}
+NO_MARGIN_REQUIREMENT_RATIO = Decimal("100")
+MMR_STOP_OPENING_THRESHOLD = Decimal("6.0")
+IMR_STOP_OPENING_THRESHOLD = Decimal("1.2")
+MMR_RESUME_OPENING_THRESHOLD = Decimal("6.44")
+IMR_RESUME_OPENING_THRESHOLD = Decimal("1.77")
+
+
+def calculate_margin_rates(account: dict[str, Any]) -> tuple[Decimal, Decimal]:
+    risk_ratio = decimal_value(account.get("riskRatio"))
+    adjusted_equity = decimal_value(account.get("adjustedEquity"))
+    initial_margin = decimal_value(account.get("im"))
+    maintenance_margin = decimal_value(account.get("mm"))
+    if risk_ratio > ZERO:
+        mmr = Decimal("1") / risk_ratio
+    elif maintenance_margin == ZERO:
+        mmr = NO_MARGIN_REQUIREMENT_RATIO
+    else:
+        mmr = adjusted_equity / maintenance_margin
+    imr = (
+        NO_MARGIN_REQUIREMENT_RATIO
+        if initial_margin == ZERO
+        else adjusted_equity / initial_margin
+    )
+    return mmr, imr
+
+
+def calculate_opening_risk_gate(mmr: Decimal, imr: Decimal) -> dict[str, Any]:
+    is_risky = mmr < MMR_STOP_OPENING_THRESHOLD or imr < IMR_STOP_OPENING_THRESHOLD
+    is_safe = mmr > MMR_RESUME_OPENING_THRESHOLD and imr > IMR_RESUME_OPENING_THRESHOLD
+    if is_risky:
+        result = "禁止开仓"
+        detail = "触发停止开仓条件"
+    elif is_safe:
+        result = "允许恢复开仓"
+        detail = "满足恢复开仓条件"
+    else:
+        result = "保持当前开仓状态"
+        detail = "处于滞回区间，交易程序不会改变当前状态"
+    return {
+        "is_risky": is_risky,
+        "is_safe": is_safe,
+        "result": result,
+        "detail": detail,
+        "stop_condition": "MMR < 6.0 或 IMR < 1.2",
+        "resume_condition": "MMR > 6.44 且 IMR > 1.77",
+    }
 
 
 def normalize_asset(asset: str, aliases: dict[str, str]) -> str:
@@ -36,8 +83,9 @@ def build_hedge_rows(
         asset = normalize_asset(balance.currency, aliases)
         if asset == quote_currency:
             continue
-        # UTA 中借入资产会同时增加 balance 和 liability；套利净现货敞口应扣除负债。
-        spot_qty[asset] += balance.balance - balance.liability
+        # KuCoin UTA 的 balance 已经带方向，liability 是负债明细，不能再次相减。
+        # equity 是平台给出的扣除负债/利息后的净资产口径，直接用于现货敞口。
+        spot_qty[asset] += balance.equity
         if balance.account_type.lower() in TRADE_ACCOUNT_TYPES:
             spot_available[asset] += balance.available
 

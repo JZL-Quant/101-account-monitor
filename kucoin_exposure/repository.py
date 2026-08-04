@@ -90,6 +90,24 @@ class ExposureRepository:
     async def initialize(self):
         await asyncio.to_thread(self._initialize_sync)
 
+    async def equity_history(self, limit: int = 1440) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(self._equity_history_sync, limit)
+
+    def _equity_history_sync(self, limit: int) -> list[dict[str, Any]]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                "SELECT sampled_at, payload_json FROM snapshot_runs "
+                "WHERE status='success' ORDER BY id DESC LIMIT ?",
+                (max(2, limit),),
+            ).fetchall()
+        points = []
+        for row in reversed(rows):
+            payload = json.loads(row["payload_json"])
+            equity = (payload.get("summary") or {}).get("account_equity")
+            if equity is not None:
+                points.append({"sampled_at": row["sampled_at"], "equity": equity})
+        return points
+
     def _initialize_sync(self):
         with closing(self._connect()) as connection:
             connection.executescript(SCHEMA)

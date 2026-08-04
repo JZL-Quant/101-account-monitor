@@ -56,6 +56,7 @@ class HedgeConfig:
     matched_threshold_percent: float = 1.0
     warning_threshold_percent: float = 5.0
     dust_value_usdt: float = 1.0
+    display_dust_value_usdt: float = 0.1
     aliases: dict[str, str] = field(default_factory=lambda: {"XBT": "BTC"})
     excluded_assets: frozenset[str] = field(default_factory=frozenset)
 
@@ -182,6 +183,9 @@ def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> AppConfig:
             matched_threshold_percent=float(hedge.get("matched_threshold_percent", 1)),
             warning_threshold_percent=float(hedge.get("warning_threshold_percent", 5)),
             dust_value_usdt=float(hedge.get("dust_value_usdt", 1)),
+            display_dust_value_usdt=max(
+                0.0, float(hedge.get("display_dust_value_usdt", 0.1))
+            ),
             aliases=normalized_aliases,
             excluded_assets=excluded_assets,
         ),
