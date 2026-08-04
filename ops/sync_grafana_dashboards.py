@@ -35,6 +35,7 @@ from config.settings import (
     REFERENCE_NAV_DASHBOARD_UID,
     environment_value,
 )
+from core.account_registry import EXCHANGE_ACCOUNT_BY_ID
 
 CONFIG_PATH = ACCOUNTS_CONFIG_PATH
 
@@ -430,8 +431,7 @@ def account_exchange(account_info, source_config):
 def metric_prefix(account_info, source_config):
     if source_config.get("metric_prefix"):
         return source_config["metric_prefix"]
-    exchange = account_exchange(account_info, source_config)
-    return exchange[:1].upper() + exchange[1:].lower()
+    return canonical_exchange_label(account_info, source_config)
 
 
 def panel_exchange(account_info, source_config):
@@ -440,9 +440,16 @@ def panel_exchange(account_info, source_config):
     exchange = account_exchange(account_info, source_config).strip().lower()
     if exchange == "binance":
         return "BN"
-    if exchange == "gate":
-        return "Gate"
-    return exchange[:1].upper() + exchange[1:]
+    return canonical_exchange_label(account_info, source_config)
+
+
+def canonical_exchange_label(account_info, source_config):
+    exchange = str(account_exchange(account_info, source_config)).strip()
+    exchange_id = exchange.lower()
+    account_cls = EXCHANGE_ACCOUNT_BY_ID.get(exchange_id)
+    if account_cls is not None:
+        return account_cls.exchange_label
+    return exchange[:1].upper() + exchange[1:] if exchange else "Exchange"
 
 
 def source_instance(source_config):
