@@ -81,6 +81,22 @@
                         class="block w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-2" required />
                     <p class="mt-1 text-xs text-gray-500">凭证只写入服务器配置，不会在页面或提交结果中返回。</p>
                 </div>
+                <div id="kucoin_credentials" class="hidden space-y-5">
+                    <div>
+                        <label for="api_passphrase" class="block text-sm font-semibold text-gray-700 mb-2">KuCoin API Passphrase（隐藏输入）</label>
+                        <input id="api_passphrase" name="api_passphrase" type="password" autocomplete="new-password"
+                            class="block w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-2" />
+                    </div>
+                    <div>
+                        <label for="api_key_version" class="block text-sm font-semibold text-gray-700 mb-2">KuCoin API Key Version</label>
+                        <select id="api_key_version" name="api_key_version"
+                            class="block w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-2">
+                            <option value="2">2</option>
+                            <option value="3">3</option>
+                        </select>
+                        <p class="mt-1 text-xs text-gray-500">请填写 KuCoin API Management 页面显示的版本。</p>
+                    </div>
+                </div>
                 <button id="submitButton" type="submit"
                     class="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold py-3 rounded-lg shadow-md">
                     保存并刷新账户
@@ -98,6 +114,21 @@
         const productSequence = document.getElementById("product_sequence");
         const client = document.getElementById("client");
         const productName = document.getElementById("product_name");
+        const exchange = document.getElementById("exchange");
+        const kucoinCredentials = document.getElementById("kucoin_credentials");
+        const apiPassphrase = document.getElementById("api_passphrase");
+
+        function updateExchangeCredentials() {
+            const isKucoin = exchange.value === "kucoin";
+            kucoinCredentials.classList.toggle("hidden", !isKucoin);
+            apiPassphrase.required = isKucoin;
+            if (!isKucoin) {
+                apiPassphrase.value = "";
+            }
+        }
+
+        exchange.addEventListener("change", updateExchangeCredentials);
+        updateExchangeCredentials();
 
         function selectedLabel(id) {
             const select = document.getElementById(id);

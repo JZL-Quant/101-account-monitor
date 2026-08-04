@@ -55,18 +55,11 @@ def load_archived_accounts():
     return data if isinstance(data, dict) else {}
 
 
-def account_source(account_info):
-    if account_info.get("exchange_id") == "gate":
-        return "Gate_monitor"
-    return "Binance_monitor_B" if account_info.get("ccy") == "BTC" else "Binance_monitor"
-
-
 def account_response(account_name, action, amount, action_date):
     account_info = account_infos.get(account_name, {})
     return {
         "message": f"{account_name} {action}成功，金额: {amount}，日期: {action_date}",
         "account_name": account_name,
-        "source": account_source(account_info),
         "ccy": account_info.get("ccy", "USDT"),
     }
 
@@ -75,8 +68,11 @@ def build_account_options():
     return [
         {
             "name": account_name,
-            "label": f"{account_name} ({account_source(account_info)} / {account_info.get('ccy', 'USDT')})",
-            "source": account_source(account_info),
+            "label": (
+                f"{account_name} "
+                f"({account_info.get('exchange_label', account_info.get('exchange', 'Binance'))} "
+                f"/ {account_info.get('ccy', 'USDT')})"
+            ),
             "ccy": account_info.get("ccy", "USDT"),
             "exchange": account_info.get("exchange", "Binance"),
             "client": account_info.get("client", ""),
@@ -225,9 +221,9 @@ def build_exchange_options():
     return [
         {
             "id": exchange_id,
-            "label": exchange_id[:1].upper() + exchange_id[1:],
+            "label": account_cls.exchange_label,
         }
-        for exchange_id in sorted(EXCHANGE_ACCOUNT_BY_ID)
+        for exchange_id, account_cls in sorted(EXCHANGE_ACCOUNT_BY_ID.items())
     ]
 
 
@@ -285,7 +281,14 @@ def parse_interest_rate(value, product_name):
     return rate
 
 
-async def validate_exchange_credentials(exchange, account_type, api_key, secret_key):
+async def validate_exchange_credentials(
+    exchange,
+    account_type,
+    api_key,
+    secret_key,
+    api_passphrase="",
+    api_key_version="2",
+):
     """Validate credentials before they are persisted to accounts_config.yaml."""
     exchange_id = normalize_exchange(exchange)
     account_type = normalize_account_type(account_type)
@@ -293,6 +296,10 @@ async def validate_exchange_credentials(exchange, account_type, api_key, secret_
     secret_key = (secret_key or "").strip()
     if not api_key or not secret_key:
         raise ValueError("API Key 和 Secret Key 不能为空")
+    api_passphrase = (api_passphrase or "").strip()
+    api_key_version = str(api_key_version or "2").strip()
+    if exchange_id == "kucoin" and not api_passphrase:
+        raise ValueError("KuCoin API Passphrase 不能为空")
 
     account_cls = EXCHANGE_ACCOUNT_BY_ID[exchange_id]
     account_info = {
@@ -304,6 +311,8 @@ async def validate_exchange_credentials(exchange, account_type, api_key, secret_
         "exchange": exchange_id,
         "minute_snapshot_file": os.devnull,
         "blacklist": [],
+        "passphrase": api_passphrase,
+        "api_key_version": api_key_version,
     }
     account = account_cls.from_account_info("__credential_check__", account_info)
     try:
@@ -325,12 +334,16 @@ def append_account_config(
     interest_rate,
     api_key,
     secret_key,
+    api_passphrase="",
+    api_key_version="2",
 ):
     global account_infos, accounts
 
     product_name = product_name.strip()
     api_key = api_key.strip()
     secret_key = secret_key.strip()
+    api_passphrase = (api_passphrase or "").strip()
+    api_key_version = str(api_key_version or "2").strip()
     if not re.fullmatch(r"[A-Za-z0-9_]+", product_name):
         raise ValueError("产品名称只能包含英文字母、数字和下划线")
     validate_new_account_name(product_name)
@@ -340,6 +353,10 @@ def append_account_config(
     initial_unit = parse_initial_unit(initial_unit)
     ccy = normalize_ccy(ccy)
     exchange = normalize_exchange(exchange)
+    if exchange == "kucoin" and not api_passphrase:
+        raise ValueError("KuCoin API Passphrase 不能为空")
+    if exchange == "kucoin" and api_key_version not in {"2", "3"}:
+        raise ValueError("KuCoin API Key Version 仅支持 2 或 3")
     account_type = normalize_account_type(account_type)
     client = normalize_client(client)
     interest_rate = parse_interest_rate(interest_rate, product_name)
@@ -357,6 +374,11 @@ def append_account_config(
             "ccy": ccy,
         }
     }
+    if exchange == "kucoin":
+        config_entry[product_name].update({
+            "passphrase": api_passphrase,
+            "api_key_version": api_key_version,
+        })
     yaml_fragment = yaml.safe_dump(config_entry, allow_unicode=True, sort_keys=False)
 
     original_size = os.path.getsize(CONFIG_PATH)

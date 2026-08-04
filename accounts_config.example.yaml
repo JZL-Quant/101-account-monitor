@@ -10,3 +10,17 @@ Example_Account:
   interest_rate: 0
   client: ExampleClient
   ccy: USDT
+
+# KuCoin_Example:
+#   key: replace_with_kucoin_api_key
+#   secret: replace_with_kucoin_api_secret
+#   passphrase: replace_with_kucoin_api_passphrase
+#   api_key_version: "2"
+#   initial_unit: 1000000
+#   principal: 1000000
+#   account_type: account
+#   exchange: KuCoin
+#   interest_rate: 0
+#   client: ExampleClient
+#   ccy: USDT
+#   skip_default_feishu: true

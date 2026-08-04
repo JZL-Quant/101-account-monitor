@@ -3,13 +3,18 @@ import re
 
 import yaml
 
-from .exchange_accounts import BinanceExchangeAccount, GateExchangeAccount
+from .exchange_accounts import (
+    BinanceExchangeAccount,
+    GateExchangeAccount,
+    KucoinExchangeAccount,
+)
 from config.settings import MINUTE_SNAPSHOT_DIR
 
 
 EXCHANGE_ACCOUNT_BY_ID = {
     "binance": BinanceExchangeAccount,
     "gate": GateExchangeAccount,
+    "kucoin": KucoinExchangeAccount,
 }
 
 
@@ -58,7 +63,7 @@ class AccountRegistry:
     def _build_account_info(self, account_name: str, account_info: dict, global_blacklist=None) -> dict:
         exchange = account_info.get("exchange", "Binance")
         exchange_id = self._exchange_id(exchange)
-        exchange_label = self._exchange_label(exchange)
+        exchange_label = self._exchange_label(exchange_id, exchange)
         account_group = self._account_group(account_name)
         ccy = self._ccy(account_info.get("ccy", "USDT"))
         minute_snapshot_file = self._minute_snapshot_file(exchange_label, account_name, ccy)
@@ -76,6 +81,10 @@ class AccountRegistry:
             "account_group": account_group,
             "key": account_info["key"],
             "secret": account_info["secret"],
+            "passphrase": account_info.get("passphrase", ""),
+            "api_key_version": str(account_info.get("api_key_version", "2")),
+            "site_type": account_info.get("site_type", "global"),
+            "skip_default_feishu": bool(account_info.get("skip_default_feishu", False)),
             "blacklist": account_info.get("blacklist", global_blacklist or []),
         }
 
@@ -90,11 +99,12 @@ class AccountRegistry:
         return (exchange or "Binance").strip().lower()
 
     @staticmethod
-    def _exchange_label(exchange: str) -> str:
-        exchange = (exchange or "Binance").strip()
-        if not exchange:
-            return "Binance"
-        return AccountRegistry._safe_label(exchange[:1].upper() + exchange[1:]) or "Exchange"
+    def _exchange_label(exchange_id: str, exchange: str) -> str:
+        account_cls = EXCHANGE_ACCOUNT_BY_ID.get(exchange_id)
+        if account_cls is not None:
+            return account_cls.exchange_label
+        exchange = (exchange or "Exchange").strip()
+        return AccountRegistry._safe_label(exchange) or "Exchange"
 
     @staticmethod
     def _ccy(ccy: str) -> str:

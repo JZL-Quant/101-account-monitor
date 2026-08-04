@@ -55,6 +55,24 @@ def is_valid_denominator(value):
     safe_value = safe_metric_val(value)
     return safe_value is not None and abs(safe_value) > MIN_VALID_CALCULATION_VALUE
 
+
+def _default_feishu_accounts(account_map):
+    """返回参加默认飞书发送及 Z 值计算的账户。"""
+    return {
+        name: info
+        for name, info in account_map.items()
+        if not info.get("skip_default_feishu", False)
+    }
+
+
+def _kucoin_accounts(account_map):
+    """返回全部 KuCoin 账户；KC 专用发送不检查默认飞书跳过字段。"""
+    return {
+        name: info
+        for name, info in account_map.items()
+        if str(info.get("exchange_id", "")).lower() == "kucoin"
+    }
+
 # ---------- 动态创建 Prometheus 指标 ----------
 account_registry = get_account_registry(str(ACCOUNTS_CONFIG_PATH))
 accounts = account_registry.local_accounts()
@@ -449,7 +467,7 @@ async def check_large_equity_changes():
 
 async def update_metrics():
     """分钟级任务：更新最新实际权益、24 小时点对点收益和 1 小时中位数收益。"""
-    for account_name, account_info in list(accounts.items()):
+    for account_name, account_info in list(_default_feishu_accounts(accounts).items()):
         try:
             snapshot_df = read_minute_snapshot_file(account_info["minute_snapshot_file"])
             if snapshot_df is None:
@@ -542,32 +560,52 @@ async def update_annualized_metrics():
 
     await update_bigquery_returns(snapshot_frames)
 
-    daily_report = build_daily_report(accounts, account_metrics)
-    daily_detail_cards = build_daily_detail_cards(daily_report)
-    performance_card = build_return_performance_card(
-        daily_report.performance_sections,
-        daily_report.report_date,
-    )
+    report_accounts = _default_feishu_accounts(accounts)
+    if report_accounts:
+        daily_report = build_daily_report(report_accounts, account_metrics)
+        daily_detail_cards = build_daily_detail_cards(daily_report)
+        performance_card = build_return_performance_card(
+            daily_report.performance_sections,
+            daily_report.report_date,
+        )
 
-    await NOTIFIER.send_card(daily_detail_cards, route="daily_report")
-    # 收益表现总览最后发送，保证它位于本次日报消息的最下方。
-    await NOTIFIER.send_card(performance_card, route="return_performance")
+        await NOTIFIER.send_card(daily_detail_cards, route="daily_report")
+        # 收益表现总览最后发送，保证它位于本次日报消息的最下方。
+        await NOTIFIER.send_card(performance_card, route="return_performance")
+
+    await send_kucoin_daily_report()
+
+
+async def send_kucoin_daily_report():
+    """向 KC 专用群发送 KuCoin 组合报告，不读取默认飞书跳过字段。"""
+    kc_accounts = _kucoin_accounts(accounts)
+    if not kc_accounts:
+        return
+    kc_report = build_daily_report(kc_accounts, account_metrics)
+    await NOTIFIER.send_card(
+        build_daily_detail_cards(kc_report),
+        route="kc",
+        require_route=True,
+    )
 
 
 async def update_annualized_metrics_test():
     """启动任务：刷新同一套指标，并仅向严格 test 路由发送日报。"""
     await refresh_annualized_metrics()
 
-    daily_report = build_daily_report(accounts, account_metrics)
+    report_accounts = _default_feishu_accounts(accounts)
+    if not report_accounts:
+        return
+    daily_report = build_daily_report(report_accounts, account_metrics)
     daily_detail_cards = build_daily_detail_cards(daily_report)
     performance_card = build_return_performance_card(
         daily_report.performance_sections,
         daily_report.report_date,
     )
 
-    await NOTIFIER.send_card(daily_detail_cards, route="test")
+    await NOTIFIER.send_card(daily_detail_cards, route="test", require_route=True)
     # 测试群同样保持收益表现总览位于最后。
-    await NOTIFIER.send_card(performance_card, route="test")
+    await NOTIFIER.send_card(performance_card, route="test", require_route=True)
 
 
 def cleanup_expired_runtime_logs():

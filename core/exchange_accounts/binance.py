@@ -9,6 +9,8 @@ from .base import BaseExchangeAccount, RUNTIME_LOGGER
 
 
 class BinanceExchangeAccount(BaseExchangeAccount):
+    exchange_id = "binance"
+    exchange_label = "Binance"
     supported_account_types = ("account_pro", "account", "account_LTP")
 
     def __init__(

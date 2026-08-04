@@ -60,14 +60,31 @@ class FeishuRouterTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(TypeError):
             await router.send_card("not-a-card")
 
-    async def test_test_route_never_falls_back(self):
-        router = FeishuRouter({"default": ["production"], "test": []}, client=RecordingClient())
+    async def test_require_route_rejects_missing_empty_and_unspecified_routes(self):
+        router = FeishuRouter(
+            {"default": ["production"], "test": [], "kc": []},
+            client=RecordingClient(),
+        )
 
-        with self.assertRaises(FeishuRouteError):
-            await router.send_card({}, route="test")
+        for route in (None, "", "missing", "test", "kc"):
+            with self.assertRaises(FeishuRouteError):
+                await router.send_card({}, route=route, require_route=True)
+            with self.assertRaises(FeishuRouteError):
+                await router.send_card(
+                    [{"id": 1}],
+                    route=route,
+                    require_route=True,
+                )
+            with self.assertRaises(FeishuRouteError):
+                await router.send_card([], route=route, require_route=True)
 
-        with self.assertRaises(FeishuRouteError):
-            await router.send_card([{"id": 1}], route="test")
+    async def test_require_route_accepts_explicit_default(self):
+        client = RecordingClient()
+        router = FeishuRouter({"default": ["production"]}, client=client)
+
+        await router.send_card({}, route="default", require_route=True)
+
+        self.assertEqual(client.calls[0][1], ("production",))
 
 
 if __name__ == "__main__":

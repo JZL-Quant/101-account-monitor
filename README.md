@@ -80,16 +80,24 @@ Example_Account:
 | 字段 | 说明 |
 | --- | --- |
 | `key` / `secret` | 交易所 API 凭证 |
+| `passphrase` | KuCoin API Passphrase；KuCoin 账户必填 |
+| `api_key_version` | KuCoin API Key 版本，按 API Management 页面填写 `2` 或 `3` |
 | `initial_unit` | 账户初始份额 |
 | `principal` | 当前本金；未配置时兼容使用 `initial_unit`，赎回后自动扣减并写回配置 |
 | `account_type` | 账户类型 |
-| `exchange` | 交易所，当前支持 `Binance`、`Gate` |
+| `exchange` | 交易所，当前支持 `Binance`、`Gate`、`KuCoin` |
 | `interest_rate` | 利率或计息参数 |
 | `client` | 客户名称 |
 | `ccy` | 计价币种，如 `USDT` 或 `BTC` |
+| `skip_default_feishu` | 可选，默认 `false`；设为 `true` 时不进入默认飞书消息及其 Z 值计算 |
+
+KuCoin 专用日级发送会选取全部 KuCoin 账户并向 `kc` 路由发送组合收益分析卡，
+不会读取 `skip_default_feishu`。因此可用该字段阻止账户进入默认日报，同时保留 KC 群发送。
 | `Blacklist` | Gate 账户估值时忽略缺失价格的币种列表 |
 
 Gate 估值遇到缺少 USDT 价格的币种时，会将该币种从当次权益快照中跳过并记录 `WARNING` 日志，但不会发送飞书告警。黑名单中的币种会静默跳过。
+
+KuCoin 账户通过账户资产估值接口按 `ccy` 获取总净值。API 请求失败时沿用其他交易所的容错方式，回退到该账户分钟快照 CSV 的最后一条实际权益。
 
 > `accounts_config.yaml` 包含敏感凭证，已设计为仅保留在服务器本地。请勿提交到 Git，也不要给 API Key 开启不必要的交易或提现权限。
 
@@ -114,6 +122,7 @@ FEISHU_WEBHOOK_ROUTES = {
     "return_performance": [],
     "equity_change_alert": [],
     "test": ["https://open.feishu.cn/open-apis/bot/v2/hook/测试群-webhook"],
+    "kc": ["https://open.feishu.cn/open-apis/bot/v2/hook/KC专用群-webhook"],
 }
 FEISHU_APP_ID = ""
 FEISHU_APP_SECRET = ""
@@ -130,7 +139,7 @@ GRAFANA_PASSWORD = ""
 | `config/settings.py` | 是 | 路径、端口、调度时间等非敏感配置，以及本地密钥读取逻辑 |
 | `config/local_secrets.example.py` | 是 | 不含真实值的配置模板 |
 | `config/local_secrets.py` | 否 | 飞书和 Grafana 等真实凭证 |
-| `accounts_config.yaml` | 否 | Binance、Gate 等各账户的 API Key 与 Secret |
+| `accounts_config.yaml` | 否 | Binance、Gate、KuCoin 等各账户的 API 凭证 |
 | `archived_accounts/accounts_config.yaml` | 否 | 已归档账户配置、归档时间及其 CSV 路径 |
 
 账户密钥继续放在 `accounts_config.yaml`，因为它还包含账户份额、币种和客户等结构化信息；不与通用服务凭证混放。
@@ -140,7 +149,7 @@ GRAFANA_PASSWORD = ""
 - 仅发送文字或卡片到群机器人：只需在 `FEISHU_BOT_WEBHOOK_URLS` 列表中添加群机器人的 webhook，不需要 `APP_ID` 和 `APP_SECRET`。
 - 向飞书上传图片并把图片用于消息卡片：需要 `FEISHU_APP_ID` 和 `FEISHU_APP_SECRET`，服务会用它们获取 tenant access token。
 - `default` 是默认发送列表；普通任务路由缺失、为 `None` 或为空列表时，静默使用 `default`。
-- `test` 是严格测试路由，缺失或为空时拒绝发送，不会回退到正式群。
+- `test` 和 `kc` 是严格路由，缺失或为空时拒绝发送，不会回退到正式群。
 - 日报、收益率总览和资金变动可分别配置任务路由；不需要单独分群时保留空列表即可。
 
 ### 4. 配置非敏感环境变量

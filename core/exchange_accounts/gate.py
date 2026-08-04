@@ -19,6 +19,8 @@ class PriceMissingError(Exception):
 
 
 class GateExchangeAccount(BaseExchangeAccount):
+    exchange_id = "gate"
+    exchange_label = "Gate"
     supported_account_types = ("account", "account_pro")
 
     @classmethod

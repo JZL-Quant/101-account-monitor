@@ -54,6 +54,8 @@ def parse_snapshot_timestamps(df, snapshot_file):
 
 
 class BaseExchangeAccount(ABC):
+    exchange_id = "exchange"
+    exchange_label = "Exchange"
     supported_account_types = ()
 
     @classmethod
@@ -87,20 +89,19 @@ class BaseExchangeAccount(ABC):
         self.account_type = account_type
         self.ccy = (ccy or "USDT").upper()
         self.exchange = (exchange or "Exchange").strip()
-        self.exchange_id = self.exchange.lower()
+        self.exchange_id = type(self).exchange_id
+        self.exchange_label = type(self).exchange_label
         self._latest_total_unit = None
         self._snapshot_schema_checked = False
         # Snapshot appends and historical fund-event rewrites both update the
         # CSV and the in-memory unit cache. Keep them in one critical section.
         self._snapshot_lock = asyncio.Lock()
 
-        exchange_label = re.sub(r"\W+", "_", self.exchange[:1].upper() + self.exchange[1:]).strip("_")
-        exchange_label = exchange_label or "Exchange"
         ccy_label = re.sub(r"\W+", "_", self.ccy).strip("_") or "USDT"
         os.makedirs(MINUTE_SNAPSHOT_DIR, exist_ok=True)
         self.minute_snapshot_file = minute_snapshot_file or os.path.join(
             MINUTE_SNAPSHOT_DIR,
-            f"{exchange_label}_{name}_{ccy_label}_minute_snapshot.csv",
+            f"{self.exchange_label}_{name}_{ccy_label}_minute_snapshot.csv",
         )
 
         if self.supported_account_types and account_type not in self.supported_account_types:

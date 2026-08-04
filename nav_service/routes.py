@@ -262,6 +262,8 @@ def register_routes(app, templates):
         interest_rate: str = Form(""),
         api_key: str = Form(...),
         secret_key: str = Form(...),
+        api_passphrase: str = Form(""),
+        api_key_version: str = Form("2"),
     ):
         try:
             state.validate_new_account_name(product_name)
@@ -270,6 +272,8 @@ def register_routes(app, templates):
                 account_type,
                 api_key,
                 secret_key,
+                api_passphrase,
+                api_key_version,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
@@ -287,6 +291,8 @@ def register_routes(app, templates):
                 interest_rate,
                 api_key,
                 secret_key,
+                api_passphrase,
+                api_key_version,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
