@@ -44,7 +44,7 @@ class DailyRuntimeFileHandler(logging.FileHandler):
         self._current_date = date.today()
         self._log_dir = Path(filename).resolve().parent
         self._max_bytes = max_bytes
-        super().__init__(filename=filename, mode="a", encoding=encoding)
+        super().__init__(filename=filename, mode="a", encoding=encoding, delay=True)
 
     def _available_timestamp_path(self, now):
         base_name = f"runtime_{now:%Y%m%d_%H%M%S}"
@@ -60,7 +60,10 @@ class DailyRuntimeFileHandler(logging.FileHandler):
             self.flush()
             self.stream.close()
         self.baseFilename = str(target_path)
-        self.stream = self._open()
+        # Keep the target lazy: FileHandler.emit() opens it when the next
+        # record is actually written. This also prevents the midnight task
+        # and short-lived import/test processes from leaving empty files.
+        self.stream = None
         self._current_date = target_date
 
     def _switch_to_date(self, target_date):
