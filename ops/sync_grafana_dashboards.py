@@ -39,6 +39,15 @@ from core.account_registry import EXCHANGE_ACCOUNT_BY_ID
 
 CONFIG_PATH = ACCOUNTS_CONFIG_PATH
 
+# Dashboard panel order: exchange first, then the internal account name.
+# Add or rearrange entries here to customize the exchange display order.
+EXCHANGE_SORT_ORDER = [
+    "Binance",
+    "Gate",
+    "KuCoin",
+    "OKX",
+]
+
 # IMPORTANT:
 # Default panel count comes from accounts_config.yaml.
 # Data source defaults to the first Prometheus data source. To force the account
@@ -375,7 +384,27 @@ def load_accounts(config_args):
     accounts = []
     for source_config in source_configs_from_args(config_args):
         accounts.extend(load_accounts_from_source(source_config))
-    return sorted(accounts, key=lambda item: (item["source"], item["name"]))
+    return sorted(accounts, key=account_sort_key)
+
+
+def account_sort_key(account):
+    exchange = str(account.get("exchange") or "").strip()
+    exchange_key = exchange.casefold()
+    order_by_exchange = {
+        name.casefold(): index for index, name in enumerate(EXCHANGE_SORT_ORDER)
+    }
+    configured_index = order_by_exchange.get(exchange_key)
+    if configured_index is None:
+        configured_index = len(EXCHANGE_SORT_ORDER)
+        unknown_exchange = exchange_key
+    else:
+        unknown_exchange = ""
+    return (
+        configured_index,
+        unknown_exchange,
+        str(account.get("name") or "").casefold(),
+        str(account.get("source") or "").casefold(),
+    )
 
 
 def source_configs_from_args(config_args):
