@@ -7,6 +7,7 @@ from .exchange_accounts import (
     BinanceExchangeAccount,
     GateExchangeAccount,
     KucoinExchangeAccount,
+    OkxExchangeAccount,
 )
 from config.settings import MINUTE_SNAPSHOT_DIR
 
@@ -15,6 +16,7 @@ EXCHANGE_ACCOUNT_BY_ID = {
     "binance": BinanceExchangeAccount,
     "gate": GateExchangeAccount,
     "kucoin": KucoinExchangeAccount,
+    "okx": OkxExchangeAccount,
 }
 
 
@@ -68,6 +70,7 @@ class AccountRegistry:
         ccy = self._ccy(account_info.get("ccy", "USDT"))
         minute_snapshot_file = self._minute_snapshot_file(exchange_label, account_name, ccy)
         return {
+            **account_info,
             "minute_snapshot_file": minute_snapshot_file,
             "initial_unit": account_info["initial_unit"],
             "principal": account_info.get("principal", account_info["initial_unit"]),
@@ -81,9 +84,6 @@ class AccountRegistry:
             "account_group": account_group,
             "key": account_info["key"],
             "secret": account_info["secret"],
-            "passphrase": account_info.get("passphrase", ""),
-            "api_key_version": str(account_info.get("api_key_version", "2")),
-            "site_type": account_info.get("site_type", "global"),
             "skip_default_feishu": bool(account_info.get("skip_default_feishu", False)),
             "blacklist": account_info.get("blacklist", global_blacklist or []),
         }

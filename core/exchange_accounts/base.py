@@ -5,6 +5,7 @@ import math
 import os
 import re
 from abc import ABC, abstractmethod
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -20,6 +21,28 @@ SNAPSHOT_COLUMNS = [
     "dividend_amount", "interest_deduction", "withdraw_amount",
     "subscription_amount",
 ]
+
+
+@dataclass(frozen=True)
+class CredentialField:
+    name: str
+    label: str
+    field_type: str = "text"
+    required: bool = False
+
+    @classmethod
+    def passphrase(cls, label="API Passphrase"):
+        return cls(
+            name="passphrase",
+            label=label,
+            field_type="password",
+            required=True,
+        )
+
+    def to_dict(self):
+        data = asdict(self)
+        data["type"] = data.pop("field_type")
+        return data
 
 
 def is_valid_calculation_value(value, *, denominator=False):
@@ -57,6 +80,33 @@ class BaseExchangeAccount(ABC):
     exchange_id = "exchange"
     exchange_label = "Exchange"
     supported_account_types = ()
+    credential_fields = ()
+    managed_credential_fields = ()
+
+    @classmethod
+    def normalize_credentials(cls, values):
+        """Validate and normalize adapter-specific credential fields."""
+        values = values or {}
+        normalized = {}
+        for field in cls.credential_fields:
+            name = field.name
+            value = values.get(name, "")
+            value = str(value or "").strip()
+            label = field.label or name
+            if field.required and not value:
+                raise ValueError(f"{cls.exchange_label} {label} 不能为空")
+            if value:
+                normalized[name] = value
+        return normalized
+
+    @classmethod
+    def normalize_managed_credentials(cls, values):
+        values = values or {}
+        return {
+            name: str(values[name]).strip()
+            for name in cls.managed_credential_fields
+            if values.get(name) is not None and str(values[name]).strip()
+        }
 
     @classmethod
     def from_account_info(cls, name: str, account_info: dict):

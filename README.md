@@ -1,6 +1,6 @@
 # 账户监控服务（Account Monitor）
 
-面向多交易所账户的统一监控服务。目前支持 Binance 与 Gate.io，可定时采集账户权益、记录分钟级净值快照、计算年化收益率，并通过 Prometheus、Grafana 和飞书完成指标展示与通知。服务同时提供账户申赎、分红及新增账户的 Web 操作页面。
+面向多交易所账户的统一监控服务。目前支持 Binance、Gate.io、KuCoin 与 OKX，可定时采集账户权益、记录分钟级净值快照、计算年化收益率，并通过 Prometheus、Grafana 和飞书完成指标展示与通知。服务同时提供账户申赎、分红及新增账户的 Web 操作页面。
 
 ## 主要功能
 
@@ -80,12 +80,12 @@ Example_Account:
 | 字段 | 说明 |
 | --- | --- |
 | `key` / `secret` | 交易所 API 凭证 |
-| `passphrase` | KuCoin API Passphrase；KuCoin 账户必填 |
-| `api_key_version` | KuCoin API Key 版本，按 API Management 页面填写 `2` 或 `3` |
+| `passphrase` | KuCoin/OKX API Passphrase；KuCoin 和 OKX 账户必填 |
+| `api_key_version` | KuCoin API Key 版本；新增账户时由系统自动探测并保存，无需手动填写 |
 | `initial_unit` | 账户初始份额 |
 | `principal` | 当前本金；未配置时兼容使用 `initial_unit`，赎回后自动扣减并写回配置 |
 | `account_type` | 账户类型 |
-| `exchange` | 交易所，当前支持 `Binance`、`Gate`、`KuCoin` |
+| `exchange` | 交易所，当前支持 `Binance`、`Gate`、`KuCoin`、`OKX` |
 | `interest_rate` | 利率或计息参数 |
 | `client` | 客户名称 |
 | `ccy` | 计价币种，如 `USDT` 或 `BTC` |
@@ -98,6 +98,7 @@ KuCoin 专用日级发送会选取全部 KuCoin 账户并向 `kc` 路由发送�
 Gate 估值遇到缺少 USDT 价格的币种时，会将该币种从当次权益快照中跳过并记录 `WARNING` 日志，但不会发送飞书告警。黑名单中的币种会静默跳过。
 
 KuCoin 账户通过账户资产估值接口按 `ccy` 获取总净值。API 请求失败时沿用其他交易所的容错方式，回退到该账户分钟快照 CSV 的最后一条实际权益。
+OKX 账户通过 `/api/v5/asset/asset-valuation` 按 `ccy` 获取包含资金、交易和 Earn 账户的总资产估值。OKX API Key 需要读权限和 Passphrase；请求失败时同样回退到最后一条分钟快照。
 
 > `accounts_config.yaml` 包含敏感凭证，已设计为仅保留在服务器本地。请勿提交到 Git，也不要给 API Key 开启不必要的交易或提现权限。
 

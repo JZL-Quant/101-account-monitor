@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import re
@@ -222,6 +223,9 @@ def build_exchange_options():
         {
             "id": exchange_id,
             "label": account_cls.exchange_label,
+            "credential_fields": [
+                field.to_dict() for field in account_cls.credential_fields
+            ],
         }
         for exchange_id, account_cls in sorted(EXCHANGE_ACCOUNT_BY_ID.items())
     ]
@@ -286,8 +290,7 @@ async def validate_exchange_credentials(
     account_type,
     api_key,
     secret_key,
-    api_passphrase="",
-    api_key_version="2",
+    extra_credentials=None,
 ):
     """Validate credentials before they are persisted to accounts_config.yaml."""
     exchange_id = normalize_exchange(exchange)
@@ -296,12 +299,9 @@ async def validate_exchange_credentials(
     secret_key = (secret_key or "").strip()
     if not api_key or not secret_key:
         raise ValueError("API Key 和 Secret Key 不能为空")
-    api_passphrase = (api_passphrase or "").strip()
-    api_key_version = str(api_key_version or "2").strip()
-    if exchange_id == "kucoin" and not api_passphrase:
-        raise ValueError("KuCoin API Passphrase 不能为空")
-
     account_cls = EXCHANGE_ACCOUNT_BY_ID[exchange_id]
+    credential_values = dict(extra_credentials or {})
+    credentials = account_cls.normalize_credentials(credential_values)
     account_info = {
         "key": api_key,
         "secret": secret_key,
@@ -311,12 +311,14 @@ async def validate_exchange_credentials(
         "exchange": exchange_id,
         "minute_snapshot_file": os.devnull,
         "blacklist": [],
-        "passphrase": api_passphrase,
-        "api_key_version": api_key_version,
+        **credentials,
     }
     account = account_cls.from_account_info("__credential_check__", account_info)
     try:
-        await account.validate_credentials()
+        resolved = await account.validate_credentials()
+        if isinstance(resolved, dict):
+            credentials.update(account_cls.normalize_managed_credentials(resolved))
+        return credentials
     finally:
         try:
             await account.close()
@@ -334,16 +336,13 @@ def append_account_config(
     interest_rate,
     api_key,
     secret_key,
-    api_passphrase="",
-    api_key_version="2",
+    extra_credentials=None,
 ):
     global account_infos, accounts
 
     product_name = product_name.strip()
     api_key = api_key.strip()
     secret_key = secret_key.strip()
-    api_passphrase = (api_passphrase or "").strip()
-    api_key_version = str(api_key_version or "2").strip()
     if not re.fullmatch(r"[A-Za-z0-9_]+", product_name):
         raise ValueError("产品名称只能包含英文字母、数字和下划线")
     validate_new_account_name(product_name)
@@ -353,10 +352,10 @@ def append_account_config(
     initial_unit = parse_initial_unit(initial_unit)
     ccy = normalize_ccy(ccy)
     exchange = normalize_exchange(exchange)
-    if exchange == "kucoin" and not api_passphrase:
-        raise ValueError("KuCoin API Passphrase 不能为空")
-    if exchange == "kucoin" and api_key_version not in {"2", "3"}:
-        raise ValueError("KuCoin API Key Version 仅支持 2 或 3")
+    account_cls = EXCHANGE_ACCOUNT_BY_ID[exchange]
+    credential_values = dict(extra_credentials or {})
+    credentials = account_cls.normalize_credentials(credential_values)
+    credentials.update(account_cls.normalize_managed_credentials(credential_values))
     account_type = normalize_account_type(account_type)
     client = normalize_client(client)
     interest_rate = parse_interest_rate(interest_rate, product_name)
@@ -374,11 +373,7 @@ def append_account_config(
             "ccy": ccy,
         }
     }
-    if exchange == "kucoin":
-        config_entry[product_name].update({
-            "passphrase": api_passphrase,
-            "api_key_version": api_key_version,
-        })
+    config_entry[product_name].update(credentials)
     yaml_fragment = yaml.safe_dump(config_entry, allow_unicode=True, sort_keys=False)
 
     original_size = os.path.getsize(CONFIG_PATH)
@@ -544,6 +539,70 @@ def adjust_principal(account_name, amount):
 
 def deduct_principal(account_name, withdrawal_amount):
     return adjust_principal(account_name, -float(withdrawal_amount))
+
+
+def _persist_account_config_fields(account_name, updates):
+    """Update adapter-resolved scalar fields without rewriting the YAML file."""
+    if not updates:
+        return
+    with open(CONFIG_PATH, "r", encoding="utf-8") as file:
+        content = file.read()
+    account_pattern = re.compile(
+        rf"(?ms)^(?P<header>{re.escape(account_name)}:[ \t]*\r?\n)"
+        rf"(?P<body>(?:^[ \t]+[^\r\n]*(?:\r?\n|$))*)"
+    )
+    match = account_pattern.search(content)
+    if not match:
+        raise ValueError(f"配置文件中找不到账户 {account_name}")
+
+    body = match.group("body")
+    indent_match = re.search(r"(?m)^(?P<indent>[ \t]+)\S", body)
+    indent = indent_match.group("indent") if indent_match else "  "
+    for field, value in updates.items():
+        serialized = json.dumps(str(value), ensure_ascii=False)
+        field_pattern = re.compile(
+            rf"(?m)^(?P<indent>[ \t]+){re.escape(field)}\s*:[^\r\n]*$"
+        )
+        if field_pattern.search(body):
+            body = field_pattern.sub(
+                lambda item: f'{item.group("indent")}{field}: {serialized}',
+                body,
+                count=1,
+            )
+        else:
+            if body and not body.endswith(("\n", "\r")):
+                body += "\n"
+            body += f"{indent}{field}: {serialized}\n"
+
+    updated = content[:match.start("body")] + body + content[match.end("body"):]
+    temp_path = CONFIG_PATH + ".tmp"
+    with open(temp_path, "w", encoding="utf-8", newline="\n") as file:
+        file.write(updated)
+    os.replace(temp_path, CONFIG_PATH)
+
+    account_infos[account_name].update(updates)
+    account_registry.reload()
+
+
+async def resolve_missing_credentials():
+    """Detect and persist adapter-managed credential metadata once per account."""
+    for account_name, account in accounts.items():
+        account_cls = type(account)
+        managed_fields = account_cls.managed_credential_fields
+        missing = [
+            field for field in managed_fields if not account_infos[account_name].get(field)
+        ]
+        if not missing:
+            continue
+        try:
+            resolved = await account.validate_credentials()
+            if not isinstance(resolved, dict):
+                continue
+            updates = {field: resolved[field] for field in missing if resolved.get(field)}
+            _persist_account_config_fields(account_name, updates)
+            LOGGER.info("Persisted detected credentials for account %s: %s", account_name, sorted(updates))
+        except Exception:
+            LOGGER.exception("Failed to detect credentials for account %s", account_name)
 
 
 def start_account_update_task(account_name):

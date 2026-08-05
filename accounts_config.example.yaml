@@ -1,8 +1,8 @@
 Blacklist: []
 
-Example_Account:
-  key: replace_with_api_key
-  secret: replace_with_secret_key
+Binance_Example:
+  key: replace_with_binance_api_key
+  secret: replace_with_binance_secret_key
   initial_unit: 1000000
   principal: 1000000
   account_type: account
@@ -11,16 +11,38 @@ Example_Account:
   client: ExampleClient
   ccy: USDT
 
-# KuCoin_Example:
-#   key: replace_with_kucoin_api_key
-#   secret: replace_with_kucoin_api_secret
-#   passphrase: replace_with_kucoin_api_passphrase
-#   api_key_version: "2"
-#   initial_unit: 1000000
-#   principal: 1000000
-#   account_type: account
-#   exchange: KuCoin
-#   interest_rate: 0
-#   client: ExampleClient
-#   ccy: USDT
-#   skip_default_feishu: true
+Gate_Example:
+  key: replace_with_gate_api_key
+  secret: replace_with_gate_secret_key
+  initial_unit: 1000000
+  principal: 1000000
+  account_type: account
+  exchange: Gate
+  interest_rate: 0
+  client: ExampleClient
+  ccy: USDT
+
+KuCoin_Example:
+  key: replace_with_kucoin_api_key
+  secret: replace_with_kucoin_api_secret
+  passphrase: replace_with_kucoin_api_passphrase
+  initial_unit: 1000000
+  principal: 1000000
+  account_type: account
+  exchange: KuCoin
+  interest_rate: 0
+  client: ExampleClient
+  ccy: USDT
+  skip_default_feishu: true
+
+OKX_Example:
+  key: replace_with_okx_api_key
+  secret: replace_with_okx_api_secret
+  passphrase: replace_with_okx_api_passphrase
+  initial_unit: 1000000
+  principal: 1000000
+  account_type: account
+  exchange: OKX
+  interest_rate: 0
+  client: ExampleClient
+  ccy: USDT

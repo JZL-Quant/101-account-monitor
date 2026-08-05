@@ -24,6 +24,63 @@ def build_account(snapshot_file):
 
 
 class KucoinExchangeAccountTests(unittest.IsolatedAsyncioTestCase):
+    def test_declared_passphrase_is_normalized(self):
+        self.assertEqual(
+            KucoinExchangeAccount.normalize_credentials({"passphrase": " pass "}),
+            {"passphrase": "pass"},
+        )
+
+    async def test_api_key_version_is_detected_from_api_key_info(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            account = KucoinExchangeAccount(
+                name="KuCoin_Test",
+                api_key="key",
+                secret="secret",
+                passphrase="passphrase",
+                initial_unit=1000,
+                account_type="account",
+                minute_snapshot_file=str(Path(temp_dir) / "snapshot.csv"),
+                api_key_version=None,
+            )
+            calls = []
+
+            def request_sync(method, path, params=None, api_key_version=None):
+                calls.append((path, api_key_version))
+                return {"apiVersion": 3}
+
+            account._request_sync = request_sync
+            detected = await account.ensure_api_key_version()
+
+        self.assertEqual(detected, "3")
+        self.assertEqual(account.api_key_version, "3")
+        self.assertEqual(calls, [("/api/v1/user/api-key", "3")])
+
+    async def test_api_key_version_falls_back_to_version_two(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            account = KucoinExchangeAccount(
+                name="KuCoin_Test",
+                api_key="key",
+                secret="secret",
+                passphrase="passphrase",
+                initial_unit=1000,
+                account_type="account",
+                minute_snapshot_file=str(Path(temp_dir) / "snapshot.csv"),
+                api_key_version=None,
+            )
+            calls = []
+
+            def request_sync(method, path, params=None, api_key_version=None):
+                calls.append(api_key_version)
+                if api_key_version == "3":
+                    raise RuntimeError("wrong version")
+                return {"apiVersion": 2}
+
+            account._request_sync = request_sync
+            detected = await account.ensure_api_key_version()
+
+        self.assertEqual(detected, "2")
+        self.assertEqual(calls, ["3", "2"])
+
     def test_private_headers_follow_kucoin_signature_rules(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             account = build_account(Path(temp_dir) / "snapshot.csv")

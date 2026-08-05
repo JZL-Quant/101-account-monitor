@@ -253,6 +253,7 @@ def register_routes(app, templates):
 
     @app.post("/accounts/new")
     async def create_account(
+        request: Request,
         product_name: str = Form(...),
         initial_unit: str = Form(...),
         ccy: str = Form(...),
@@ -262,19 +263,22 @@ def register_routes(app, templates):
         interest_rate: str = Form(""),
         api_key: str = Form(...),
         secret_key: str = Form(...),
-        api_passphrase: str = Form(""),
-        api_key_version: str = Form("2"),
     ):
+        extra_credentials = dict(await request.form())
+        # Accept submissions from the previous form while keeping the state
+        # layer independent from exchange-specific field names.
+        if "api_passphrase" in extra_credentials and "passphrase" not in extra_credentials:
+            extra_credentials["passphrase"] = extra_credentials["api_passphrase"]
         try:
             state.validate_new_account_name(product_name)
-            await state.validate_exchange_credentials(
+            validated_credentials = await state.validate_exchange_credentials(
                 exchange,
                 account_type,
                 api_key,
                 secret_key,
-                api_passphrase,
-                api_key_version,
+                extra_credentials=extra_credentials,
             )
+            extra_credentials.update(validated_credentials)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         except Exception as exc:
@@ -291,8 +295,7 @@ def register_routes(app, templates):
                 interest_rate,
                 api_key,
                 secret_key,
-                api_passphrase,
-                api_key_version,
+                extra_credentials=extra_credentials,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
@@ -392,6 +395,7 @@ def register_routes(app, templates):
 
 
 async def update_loop():
+    await state.resolve_missing_credentials()
     for account_name in state.accounts:
         state.start_account_update_task(account_name)
     await asyncio.gather(*state.account_update_tasks.values())

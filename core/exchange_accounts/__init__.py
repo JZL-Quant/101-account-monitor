@@ -5,6 +5,7 @@ __all__ = [
     "BinanceExchangeAccount",
     "GateExchangeAccount",
     "KucoinExchangeAccount",
+    "OkxExchangeAccount",
 ]
 
 
@@ -25,4 +26,8 @@ def __getattr__(name):
         from .kucoin import KucoinExchangeAccount
 
         return KucoinExchangeAccount
+    if name == "OkxExchangeAccount":
+        from .okx import OkxExchangeAccount
+
+        return OkxExchangeAccount
     raise AttributeError(name)

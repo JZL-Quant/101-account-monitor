@@ -81,22 +81,7 @@
                         class="block w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-2" required />
                     <p class="mt-1 text-xs text-gray-500">凭证只写入服务器配置，不会在页面或提交结果中返回。</p>
                 </div>
-                <div id="kucoin_credentials" class="hidden space-y-5">
-                    <div>
-                        <label for="api_passphrase" class="block text-sm font-semibold text-gray-700 mb-2">KuCoin API Passphrase（隐藏输入）</label>
-                        <input id="api_passphrase" name="api_passphrase" type="password" autocomplete="new-password"
-                            class="block w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-2" />
-                    </div>
-                    <div>
-                        <label for="api_key_version" class="block text-sm font-semibold text-gray-700 mb-2">KuCoin API Key Version</label>
-                        <select id="api_key_version" name="api_key_version"
-                            class="block w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-2">
-                            <option value="2">2</option>
-                            <option value="3">3</option>
-                        </select>
-                        <p class="mt-1 text-xs text-gray-500">请填写 KuCoin API Management 页面显示的版本。</p>
-                    </div>
-                </div>
+                <div id="exchange_credentials" class="space-y-5"></div>
                 <button id="submitButton" type="submit"
                     class="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold py-3 rounded-lg shadow-md">
                     保存并刷新账户
@@ -106,6 +91,7 @@
         </section>
     </main>
 
+    <script id="exchange-options-data" type="application/json">{{ exchanges | tojson }}</script>
     <script>
         const form = document.getElementById("newAccountForm");
         const responseMsg = document.getElementById("responseMsg");
@@ -115,15 +101,37 @@
         const client = document.getElementById("client");
         const productName = document.getElementById("product_name");
         const exchange = document.getElementById("exchange");
-        const kucoinCredentials = document.getElementById("kucoin_credentials");
-        const apiPassphrase = document.getElementById("api_passphrase");
+        const exchangeCredentials = document.getElementById("exchange_credentials");
+        const exchangeOptions = JSON.parse(
+            document.getElementById("exchange-options-data").textContent
+        );
 
         function updateExchangeCredentials() {
-            const isKucoin = exchange.value === "kucoin";
-            kucoinCredentials.classList.toggle("hidden", !isKucoin);
-            apiPassphrase.required = isKucoin;
-            if (!isKucoin) {
-                apiPassphrase.value = "";
+            exchangeCredentials.replaceChildren();
+            const selected = exchangeOptions.find((item) => item.id === exchange.value);
+            for (const field of selected?.credential_fields || []) {
+                const wrapper = document.createElement("div");
+                const label = document.createElement("label");
+                label.htmlFor = `credential_${field.name}`;
+                label.className = "block text-sm font-semibold text-gray-700 mb-2";
+                label.textContent = `${selected.label} ${field.label}${field.type === "password" ? "（隐藏输入）" : ""}`;
+
+                const input = document.createElement("input");
+                input.type = field.type || "text";
+                if (input.type === "password") input.autocomplete = "new-password";
+                input.id = `credential_${field.name}`;
+                input.name = field.name;
+                input.required = Boolean(field.required);
+                input.className = "block w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-2";
+                wrapper.append(label, input);
+
+                if (field.help) {
+                    const help = document.createElement("p");
+                    help.className = "mt-1 text-xs text-gray-500";
+                    help.textContent = field.help;
+                    wrapper.appendChild(help);
+                }
+                exchangeCredentials.appendChild(wrapper);
             }
         }
 
@@ -186,6 +194,7 @@
 
                 showMessage(data.message);
                 form.reset();
+                updateExchangeCredentials();
             } catch (error) {
                 showMessage(error.message || "网络错误，请检查服务日志", true);
             } finally {
