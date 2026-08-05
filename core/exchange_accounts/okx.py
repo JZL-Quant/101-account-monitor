@@ -12,7 +12,8 @@ from urllib.parse import urlencode
 from .base import BaseExchangeAccount, CredentialField, RUNTIME_LOGGER
 
 
-OKX_API_BASE_URL = "https://www.okx.com"
+OKX_API_BASE_URL = "https://openapi.okx.com"
+OKX_USER_AGENT = "account-monitor/1.0"
 ASSET_VALUATION_PATH = "/api/v5/asset/asset-valuation"
 
 
@@ -83,6 +84,7 @@ class OkxExchangeAccount(BaseExchangeAccount):
             ).digest()
         ).decode("ascii")
         return {
+            "User-Agent": OKX_USER_AGENT,
             "OK-ACCESS-KEY": self.api_key,
             "OK-ACCESS-SIGN": signature,
             "OK-ACCESS-TIMESTAMP": timestamp,

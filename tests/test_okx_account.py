@@ -49,6 +49,7 @@ class OkxExchangeAccountTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(headers["OK-ACCESS-SIGN"], expected_signature)
         self.assertEqual(headers["OK-ACCESS-TIMESTAMP"], timestamp)
         self.assertEqual(headers["OK-ACCESS-PASSPHRASE"], "passphrase")
+        self.assertEqual(headers["User-Agent"], "account-monitor/1.0")
 
     async def test_actual_equity_uses_total_balance(self):
         with tempfile.TemporaryDirectory() as temp_dir:

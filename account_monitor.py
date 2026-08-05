@@ -599,7 +599,7 @@ async def send_exchange_daily_report(exchange_id, route="test"):
 async def send_test_exchange_daily_reports():
     """将暂未进入正式群的交易所报告分别发往 test 路由。"""
     for exchange_id in TEST_ONLY_FEISHU_EXCHANGES:
-        await send_exchange_daily_report(exchange_id, route="test")
+        await send_exchange_daily_report(exchange_id, route="quant")
 
 
 async def update_annualized_metrics_test():
