@@ -36,6 +36,7 @@ os.chdir(BASE_DIR)
 
 
 RUNTIME_LOGGER = setup_runtime_logger("account_monitor")
+TEST_ONLY_FEISHU_EXCHANGES = ("kucoin", "okx")
 
 def safe_metric_val(val):
     """把指标值转为可计算的 float；None、NaN、Inf 统一视为无效值。"""
@@ -62,15 +63,18 @@ def _default_feishu_accounts(account_map):
         name: info
         for name, info in account_map.items()
         if not info.get("skip_default_feishu", False)
+        and str(info.get("exchange_id", "")).lower()
+        not in TEST_ONLY_FEISHU_EXCHANGES
     }
 
 
-def _kucoin_accounts(account_map):
-    """返回全部 KuCoin 账户；KC 专用发送不检查默认飞书跳过字段。"""
+def _exchange_accounts(account_map, exchange_id):
+    """返回指定交易所的全部账户，不检查默认飞书跳过字段。"""
+    exchange_id = str(exchange_id).strip().lower()
     return {
         name: info
         for name, info in account_map.items()
-        if str(info.get("exchange_id", "")).lower() == "kucoin"
+        if str(info.get("exchange_id", "")).lower() == exchange_id
     }
 
 # ---------- 动态创建 Prometheus 指标 ----------
@@ -576,20 +580,26 @@ async def update_annualized_metrics():
         # 收益表现总览最后发送，保证它位于本次日报消息的最下方。
         await NOTIFIER.send_card(performance_card, route="return_performance")
 
-    await send_kucoin_daily_report()
+    await send_test_exchange_daily_reports()
 
 
-async def send_kucoin_daily_report():
-    """向 KC 专用群发送 KuCoin 组合报告，不读取默认飞书跳过字段。"""
-    kc_accounts = _kucoin_accounts(accounts)
-    if not kc_accounts:
+async def send_exchange_daily_report(exchange_id, route="test"):
+    """向严格指定路由发送单个交易所的组合报告。"""
+    exchange_account_map = _exchange_accounts(accounts, exchange_id)
+    if not exchange_account_map:
         return
-    kc_report = build_daily_report(kc_accounts, account_metrics)
+    exchange_report = build_daily_report(exchange_account_map, account_metrics)
     await NOTIFIER.send_card(
-        build_daily_detail_cards(kc_report),
-        route="test",
+        build_daily_detail_cards(exchange_report),
+        route=route,
         require_route=True,
     )
+
+
+async def send_test_exchange_daily_reports():
+    """将暂未进入正式群的交易所报告分别发往 test 路由。"""
+    for exchange_id in TEST_ONLY_FEISHU_EXCHANGES:
+        await send_exchange_daily_report(exchange_id, route="test")
 
 
 async def update_annualized_metrics_test():

@@ -91,8 +91,8 @@ Example_Account:
 | `ccy` | 计价币种，如 `USDT` 或 `BTC` |
 | `skip_default_feishu` | 可选，默认 `false`；设为 `true` 时不进入默认飞书消息及其 Z 值计算 |
 
-KuCoin 专用日级发送会选取全部 KuCoin 账户并向 `kc` 路由发送组合收益分析卡，
-不会读取 `skip_default_feishu`。因此可用该字段阻止账户进入默认日报，同时保留 KC 群发送。
+KuCoin 和 OKX 暂不进入默认正式日报及 Z 值计算。日级任务会按交易所分别生成组合报告，
+并发往严格 `test` 路由；该专用发送不读取 `skip_default_feishu`。
 | `Blacklist` | Gate 账户估值时忽略缺失价格的币种列表 |
 
 Gate 估值遇到缺少 USDT 价格的币种时，会将该币种从当次权益快照中跳过并记录 `WARNING` 日志，但不会发送飞书告警。黑名单中的币种会静默跳过。

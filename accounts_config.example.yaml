@@ -10,6 +10,7 @@ Binance_Example:
   interest_rate: 0
   client: ExampleClient
   ccy: USDT
+  # skip_default_feishu: true # 可选，跳过飞书群发送
 
 Gate_Example:
   key: replace_with_gate_api_key
@@ -21,6 +22,7 @@ Gate_Example:
   interest_rate: 0
   client: ExampleClient
   ccy: USDT
+  # skip_default_feishu: true # 可选，跳过飞书群发送
 
 KuCoin_Example:
   key: replace_with_kucoin_api_key
@@ -33,7 +35,7 @@ KuCoin_Example:
   interest_rate: 0
   client: ExampleClient
   ccy: USDT
-  skip_default_feishu: true
+  # skip_default_feishu: true # 可选，跳过飞书群发送
 
 OKX_Example:
   key: replace_with_okx_api_key
@@ -46,3 +48,4 @@ OKX_Example:
   interest_rate: 0
   client: ExampleClient
   ccy: USDT
+  # skip_default_feishu: true # 可选，跳过飞书群发送
