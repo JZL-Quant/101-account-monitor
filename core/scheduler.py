@@ -1,16 +1,26 @@
 import asyncio
 from datetime import datetime, timedelta
 
-from config.settings import DAILY_HOUR, DAILY_MINUTE
+from config.settings import (
+    DAILY_HOUR,
+    DAILY_MINUTE,
+    WEEKLY_RANKING_HOUR,
+    WEEKLY_RANKING_MINUTE,
+    WEEKLY_RANKING_WEEKDAY,
+)
 
 
 class MonitorScheduler:
     def __init__(self, logger=None):
-        self._tasks = {"startup": [], "minute": [], "daily": []}
+        self._tasks = {"startup": [], "minute": [], "daily": [], "weekly": []}
         self._logger = logger
         self._last_daily_run_date = None
         self._daily_hour = DAILY_HOUR
         self._daily_minute = DAILY_MINUTE
+        self._last_weekly_run_key = None
+        self._weekly_weekday = WEEKLY_RANKING_WEEKDAY
+        self._weekly_hour = WEEKLY_RANKING_HOUR
+        self._weekly_minute = WEEKLY_RANKING_MINUTE
 
     def add_task(self, task_type: str, task_func, name: str = None):
         if task_type not in self._tasks:
@@ -48,6 +58,14 @@ class MonitorScheduler:
             and self._last_daily_run_date != now.date()
         )
 
+    def _weekly_due(self, now: datetime) -> bool:
+        week_key = (now.isocalendar().year, now.isocalendar().week)
+        return (
+            now.weekday() == self._weekly_weekday
+            and (now.hour, now.minute) >= (self._weekly_hour, self._weekly_minute)
+            and self._last_weekly_run_key != week_key
+        )
+
     async def _sleep_until_next_minute(self):
         now = datetime.now()
         next_minute = (now + timedelta(minutes=1)).replace(second=0, microsecond=0)
@@ -62,6 +80,8 @@ class MonitorScheduler:
         now = datetime.now()
         if (now.hour, now.minute) >= (self._daily_hour, self._daily_minute):
             self._last_daily_run_date = now.date()
+        if self._weekly_due(now):
+            self._last_weekly_run_key = (now.isocalendar().year, now.isocalendar().week)
 
         self._log("info", "scheduler started")
         while True:
@@ -70,6 +90,9 @@ class MonitorScheduler:
             if self._daily_due(now):
                 await self._safe_run("daily tasks", self._run_task_type("daily"))
                 self._last_daily_run_date = now.date()
+            if self._weekly_due(now):
+                await self._safe_run("weekly tasks", self._run_task_type("weekly"))
+                self._last_weekly_run_key = (now.isocalendar().year, now.isocalendar().week)
             await self._safe_run("minute tasks", self._run_task_type("minute"))
 
     def _log(self, level: str, message: str, *args):

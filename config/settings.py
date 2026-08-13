@@ -74,6 +74,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ACCOUNTS_CONFIG_PATH = PROJECT_ROOT / "accounts_config.yaml"
 MINUTE_SNAPSHOT_DIR = PROJECT_ROOT / "minute_snapshots"
 RUNTIME_LOG_DIR = PROJECT_ROOT / "runtime_logs"
+RUNTIME_DATA_DIR = PROJECT_ROOT / "runtime_data"
+WEEKLY_RANKING_HISTORY_PATH = RUNTIME_DATA_DIR / "weekly_client_rankings.json"
 RUNTIME_LOG_FILE = Path(
     os.getenv(
         "RUNTIME_LOG_FILE",
@@ -91,6 +93,9 @@ MONITOR_NAV_PORT = int(os.getenv("MONITOR_NAV_PORT", "7007"))
 
 DAILY_HOUR = int(os.getenv("BINANCE_DAILY_HOUR", "10"))
 DAILY_MINUTE = int(os.getenv("BINANCE_DAILY_MINUTE", "31"))
+WEEKLY_RANKING_WEEKDAY = int(os.getenv("WEEKLY_RANKING_WEEKDAY", "0"))
+WEEKLY_RANKING_HOUR = int(os.getenv("WEEKLY_RANKING_HOUR", "10"))
+WEEKLY_RANKING_MINUTE = int(os.getenv("WEEKLY_RANKING_MINUTE", "35"))
 
 # Optional BigQuery persistence for daily Binance return rows. By default the
 # service-account key is loaded from the project root; deployments can override

@@ -166,6 +166,9 @@ GRAFANA_PASSWORD = ""
 | `RUNTIME_LOG_LEVEL` | `WARNING` | 运行日志级别 |
 | `BINANCE_DAILY_HOUR` | `10` | 每日任务执行小时 |
 | `BINANCE_DAILY_MINUTE` | `31` | 每日任务执行分钟 |
+| `WEEKLY_RANKING_WEEKDAY` | `0` | 客户周排名发送星期；0 为周一，6 为周日 |
+| `WEEKLY_RANKING_HOUR` | `10` | 客户周排名发送小时 |
+| `WEEKLY_RANKING_MINUTE` | `35` | 客户周排名发送分钟 |
 | `BIGQUERY_RETURN_ENABLED` | `0` | 是否将 Binance 日收益写入 BigQuery；默认关闭 |
 | `BIGQUERY_PROJECT_ID` | `applied-groove-464707-r8` | BigQuery 项目 ID |
 | `BIGQUERY_DATASET` | `Daily_reports` | BigQuery 数据集 |
@@ -208,6 +211,14 @@ chmod +x start_account_monitor.sh
 - 账户 JSON API：`http://127.0.0.1:7007/api/accounts`
 - 新增账户：`http://127.0.0.1:7007/accounts/new`
 - Prometheus 指标：`http://127.0.0.1:7007/metrics`
+
+客户周排名默认在每周一 10:35 发送到正式路由并保存本期排名。需要发送完全相同的内容到严格测试群时，执行：
+
+```bash
+/home/lijian/.venv/bin/python /mnt/lijian/account_monitor/tools/send_weekly_client_ranking_preview.py
+```
+
+测试入口只切换发送路由，不维护另一套计算或卡片逻辑，也不会改写正式排名历史。
 
 ## 数据与指标
 

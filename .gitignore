@@ -44,6 +44,7 @@ Binance_monitor_merged_test_llj/minute_snapshots/*
 *_minute_snapshot.csv
 all_accounts_annualized*.csv
 backfill_output/
+runtime_data/
 
 # Standalone KuCoin exposure monitor secrets/runtime state
 kucoin_exposure/config.yaml

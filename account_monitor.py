@@ -18,6 +18,7 @@ from core.feishu.performance_summary_card import build_return_performance_card
 from core.large_equity_changes import find_new_large_equity_changes
 from core.runtime_logging import cleanup_runtime_logs, setup_runtime_logger
 from core.scheduler import MonitorScheduler
+from core.weekly_client_ranking import send_weekly_client_ranking as _send_weekly_client_ranking
 from config.settings import (
     ACCOUNTS_CONFIG_PATH,
     BIGQUERY_CREDENTIALS_PATH,
@@ -28,6 +29,7 @@ from config.settings import (
     MIN_VALID_CALCULATION_VALUE,
     PROJECT_ROOT,
     RUNTIME_LOG_RETENTION_DAYS,
+    WEEKLY_RANKING_HISTORY_PATH,
 )
 
 # 更改工作目录为文件所在目录
@@ -621,6 +623,23 @@ async def update_annualized_metrics_test():
     await NOTIFIER.send_card(performance_card, route="test", require_route=True)
 
 
+async def update_weekly_client_ranking(
+    route="default", require_route=False, persist_history=None
+):
+    """为统一监控入口注入客户周排名所需依赖。"""
+    return await _send_weekly_client_ranking(
+        get_account_map=lambda: _default_feishu_accounts(accounts),
+        metrics_store=account_metrics,
+        notifier=NOTIFIER,
+        refresh_metrics=refresh_annualized_metrics,
+        history_path=WEEKLY_RANKING_HISTORY_PATH,
+        logger=RUNTIME_LOGGER,
+        route=route,
+        require_route=require_route,
+        persist_history=persist_history,
+    )
+
+
 def cleanup_expired_runtime_logs():
     deleted_paths, failed_paths = cleanup_runtime_logs(RUNTIME_LOG_RETENTION_DAYS)
     RUNTIME_LOGGER.info(
@@ -644,6 +663,7 @@ def start_monitor_scheduler():
     # scheduler.add_task("minute", check_large_equity_changes)
     scheduler.add_task("daily", update_annualized_metrics)
     scheduler.add_task("daily", cleanup_expired_runtime_logs)
+    # scheduler.add_task("weekly", update_weekly_client_ranking)
     return scheduler
 
 if __name__ == '__main__':
