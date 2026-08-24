@@ -11,7 +11,12 @@ from .base import BaseExchangeAccount, RUNTIME_LOGGER
 class BinanceExchangeAccount(BaseExchangeAccount):
     exchange_id = "binance"
     exchange_label = "Binance"
-    supported_account_types = ("account_pro", "account", "account_LTP")
+    supported_account_types = ("account_pro", "account", "classic", "account_LTP")
+    creatable_account_types = ("account", "account_pro", "classic")
+    account_type_labels = {
+        **BaseExchangeAccount.account_type_labels,
+        "classic": "CLASSIC 账户",
+    }
 
     def __init__(
         self,
@@ -73,6 +78,36 @@ class BinanceExchangeAccount(BaseExchangeAccount):
                 "rw_data": rw_data,
             }
 
+        if account_type == "classic":
+            margin_data = await self.client.sapi_get_margin_account()
+            account_data = await self.client.privateGetAccount()
+            futures_data = await self.client.fapiPrivateV3GetAccount()
+            rw_data = await self.fetch_rwusd_account()
+            margin_balances = [
+                {
+                    "asset": balance["asset"],
+                    "crossMarginAsset": float(balance.get("free", 0))
+                    + float(balance.get("locked", 0)),
+                    "crossMarginBorrowed": balance.get("borrowed", 0),
+                    "crossMarginInterest": balance.get("interest", 0),
+                }
+                for balance in margin_data.get("userAssets", [])
+            ]
+            spot_balances = [
+                {
+                    **balance,
+                    "free": float(balance.get("free", 0))
+                    + float(balance.get("locked", 0)),
+                }
+                for balance in account_data.get("balances", [])
+            ]
+            return {
+                "spot_balances": margin_balances,
+                "spotaccount_balances": spot_balances,
+                "futures_data": futures_data,
+                "rw_data": rw_data,
+            }
+
         raise ValueError(f"Unsupported Binance account_type: {account_type}")
 
     async def fetch_rwusd_account(self):
@@ -96,6 +131,10 @@ class BinanceExchangeAccount(BaseExchangeAccount):
             await self.client.papi_get_balance()
             await self.client.privateGetAccount()
             await self.client.papi_get_um_account()
+        elif self.account_type == "classic":
+            await self.client.sapi_get_margin_account()
+            await self.client.privateGetAccount()
+            await self.client.fapiPrivateV3GetAccount()
         else:
             raise ValueError(f"Unsupported Binance account_type: {self.account_type}")
         await self.fetch_rwusd_account()
@@ -186,7 +225,7 @@ class BinanceExchangeAccount(BaseExchangeAccount):
                 RUNTIME_LOGGER.error("[%s] 获取 LTP 净值异常: %s", account_name, exc)
                 return fallback()
 
-        if account_type not in ["account_pro", "account"]:
+        if account_type not in ["account_pro", "account", "classic"]:
             raise ValueError(f"Unsupported Binance account_type: {account_type}")
 
         try:
@@ -246,7 +285,7 @@ class BinanceExchangeAccount(BaseExchangeAccount):
             for balance in futures_data["assets"]:
                 total = (
                     float(balance["walletBalance"]) + float(balance["unrealizedProfit"])
-                    if account_type == "account_pro"
+                    if account_type in ("account_pro", "classic")
                     else float(balance["crossWalletBalance"]) + float(balance["crossUnPnl"])
                 )
                 if total == 0:

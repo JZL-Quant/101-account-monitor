@@ -60,8 +60,9 @@
                 <div>
                     <label for="account_type" class="block text-sm font-semibold text-gray-700 mb-2">账户类型</label>
                     <select id="account_type" name="account_type" class="block w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-2" required>
-                        <option value="account">普通账户</option>
-                        <option value="account_pro">Pro 账户</option>
+                        {% for account_type in exchanges[0].account_types %}
+                        <option value="{{ account_type.value }}">{{ account_type.label }}</option>
+                        {% endfor %}
                     </select>
                 </div>
                 <div>
@@ -101,6 +102,7 @@
         const client = document.getElementById("client");
         const productName = document.getElementById("product_name");
         const exchange = document.getElementById("exchange");
+        const accountType = document.getElementById("account_type");
         const exchangeCredentials = document.getElementById("exchange_credentials");
         const exchangeOptions = JSON.parse(
             document.getElementById("exchange-options-data").textContent
@@ -135,8 +137,27 @@
             }
         }
 
-        exchange.addEventListener("change", updateExchangeCredentials);
+        function updateAccountTypes() {
+            const previousValue = accountType.value;
+            const selected = exchangeOptions.find((item) => item.id === exchange.value);
+            accountType.replaceChildren();
+            for (const item of selected?.account_types || []) {
+                const option = document.createElement("option");
+                option.value = item.value;
+                option.textContent = item.label;
+                accountType.appendChild(option);
+            }
+            if ([...accountType.options].some((option) => option.value === previousValue)) {
+                accountType.value = previousValue;
+            }
+        }
+
+        exchange.addEventListener("change", () => {
+            updateExchangeCredentials();
+            updateAccountTypes();
+        });
         updateExchangeCredentials();
+        updateAccountTypes();
 
         function selectedLabel(id) {
             const select = document.getElementById(id);

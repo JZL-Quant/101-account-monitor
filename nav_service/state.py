@@ -4,6 +4,8 @@ import logging
 import os
 import re
 import shutil
+import tempfile
+import threading
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -14,6 +16,7 @@ from core.account_registry import EXCHANGE_ACCOUNT_BY_ID, get_account_registry
 
 BASE_DIR = None
 CONFIG_PATH = None
+ACCOUNT_CONFIG_INDEX_PATH = None
 account_registry = None
 account_infos = {}
 accounts = {}
@@ -22,21 +25,94 @@ _on_account_added = None
 _on_account_archived = None
 archived_account_infos = {}
 LOGGER = logging.getLogger(__name__)
+_account_config_index_lock = threading.Lock()
 
 
 def initialize(base_dir, on_account_added=None, on_account_archived=None):
-    global BASE_DIR, CONFIG_PATH, account_registry, account_infos, accounts
+    global BASE_DIR, CONFIG_PATH, ACCOUNT_CONFIG_INDEX_PATH
+    global account_registry, account_infos, accounts
     global _on_account_added, _on_account_archived, archived_account_infos
     _on_account_added = on_account_added
     _on_account_archived = on_account_archived
 
     BASE_DIR = base_dir
     CONFIG_PATH = os.path.join(BASE_DIR, "accounts_config.yaml")
+    ACCOUNT_CONFIG_INDEX_PATH = os.path.join(BASE_DIR, "account_config_index.json")
     ensure_principals_in_config()
     account_registry = get_account_registry(CONFIG_PATH)
     account_infos = account_registry.local_accounts()
+    sync_account_config_index(account_infos)
     accounts = account_registry.exchange_accounts()
     archived_account_infos = load_archived_accounts()
+
+
+def _load_account_config_index():
+    if not os.path.exists(ACCOUNT_CONFIG_INDEX_PATH):
+        return None
+
+    try:
+        with open(ACCOUNT_CONFIG_INDEX_PATH, "r", encoding="utf-8") as file:
+            data = json.load(file)
+    except (OSError, json.JSONDecodeError):
+        LOGGER.warning(
+            "Unable to read generated account config index; rebuilding it",
+            exc_info=True,
+        )
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _write_account_config_index(data):
+    directory = os.path.dirname(ACCOUNT_CONFIG_INDEX_PATH)
+    os.makedirs(directory, exist_ok=True)
+    fd, temp_path = tempfile.mkstemp(
+        dir=directory,
+        prefix="account_config_index.",
+        suffix=".tmp",
+    )
+    try:
+        os.fchmod(fd, 0o644)
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as file:
+            json.dump(data, file, ensure_ascii=False, indent=2)
+            file.write("\n")
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temp_path, ACCOUNT_CONFIG_INDEX_PATH)
+    except Exception:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            os.unlink(temp_path)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def sync_account_config_index(account_map=None):
+    """Write the current non-secret account index used by other processes."""
+    account_map = account_infos if account_map is None else account_map
+    desired = {
+        exchange_id: {"length": 0, "accounts": []}
+        for exchange_id in sorted(EXCHANGE_ACCOUNT_BY_ID)
+    }
+    for account_name, account_info in sorted(account_map.items()):
+        exchange_id = str(account_info["exchange_id"]).strip().lower()
+        exchange_info = desired.setdefault(
+            exchange_id, {"length": 0, "accounts": []}
+        )
+        exchange_info["accounts"].append({
+            "account_name": account_name,
+            "account_type": str(account_info["account_type"]),
+        })
+        exchange_info["length"] += 1
+    with _account_config_index_lock:
+        current = _load_account_config_index()
+        if current == desired:
+            return False
+        _write_account_config_index(desired)
+        return True
 
 
 def archive_dir():
@@ -194,10 +270,27 @@ def build_account_table_groups():
     ]
 
 
-def normalize_account_type(value):
+def normalize_account_type(value, exchange=None):
     account_type = (value or "").strip()
-    if account_type not in ("account", "account_pro"):
-        raise ValueError("账户类型仅支持普通账户或 Pro 账户")
+    if exchange is None:
+        allowed_types = {
+            item
+            for account_cls in EXCHANGE_ACCOUNT_BY_ID.values()
+            for item in account_cls.creatable_account_types
+        }
+    else:
+        exchange_id = normalize_exchange(exchange)
+        allowed_types = set(
+            EXCHANGE_ACCOUNT_BY_ID[exchange_id].creatable_account_types
+        )
+    if account_type not in allowed_types:
+        labels = [
+            EXCHANGE_ACCOUNT_BY_ID[normalize_exchange(exchange)].account_type_label(item)
+            if exchange is not None
+            else item
+            for item in sorted(allowed_types)
+        ]
+        raise ValueError(f"账户类型仅支持：{'、'.join(labels)}")
     return account_type
 
 
@@ -226,6 +319,7 @@ def build_exchange_options():
             "credential_fields": [
                 field.to_dict() for field in account_cls.credential_fields
             ],
+            "account_types": account_cls.account_type_options(),
         }
         for exchange_id, account_cls in sorted(EXCHANGE_ACCOUNT_BY_ID.items())
     ]
@@ -294,7 +388,7 @@ async def validate_exchange_credentials(
 ):
     """Validate credentials before they are persisted to accounts_config.yaml."""
     exchange_id = normalize_exchange(exchange)
-    account_type = normalize_account_type(account_type)
+    account_type = normalize_account_type(account_type, exchange_id)
     api_key = (api_key or "").strip()
     secret_key = (secret_key or "").strip()
     if not api_key or not secret_key:
@@ -356,7 +450,7 @@ def append_account_config(
     credential_values = dict(extra_credentials or {})
     credentials = account_cls.normalize_credentials(credential_values)
     credentials.update(account_cls.normalize_managed_credentials(credential_values))
-    account_type = normalize_account_type(account_type)
+    account_type = normalize_account_type(account_type, exchange)
     client = normalize_client(client)
     interest_rate = parse_interest_rate(interest_rate, product_name)
 
@@ -371,6 +465,7 @@ def append_account_config(
             "interest_rate": interest_rate,
             "client": client,
             "ccy": ccy,
+            "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         }
     }
     config_entry[product_name].update(credentials)
@@ -383,6 +478,7 @@ def append_account_config(
 
         account_infos = account_registry.reload()
         account_info = account_infos[product_name]
+        sync_account_config_index(account_infos)
         account_cls = EXCHANGE_ACCOUNT_BY_ID[account_info["exchange_id"]]
         accounts[product_name] = account_cls.from_account_info(product_name, account_info)
         if _on_account_added is not None:
@@ -395,6 +491,11 @@ def append_account_config(
 
     start_account_update_task(product_name)
     return account_infos[product_name]
+
+
+def get_account_type_label(exchange, account_type):
+    exchange_id = normalize_exchange(exchange)
+    return EXCHANGE_ACCOUNT_BY_ID[exchange_id].account_type_label(account_type)
 
 
 async def archive_account(account_name):
@@ -456,6 +557,7 @@ async def archive_account(account_name):
 
     archived_account_infos = new_archive
     account_infos = account_registry.reload()
+    sync_account_config_index(account_infos)
     if _on_account_archived is not None:
         _on_account_archived(account_name)
     return archived_account_infos[account_name]

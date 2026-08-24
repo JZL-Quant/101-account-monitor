@@ -71,6 +71,7 @@ def build_return_performance_sections(account_rows, min_group_size=MIN_GROUP_SIZ
                     "group_std": std,
                     "z_value": z_value,
                     "group_label": f"{exchange_label}-{ccy}",
+                    "is_new_account": bool(row.get("is_new_account")),
                 })
 
         flagged.sort(key=lambda item: item["z_value"])

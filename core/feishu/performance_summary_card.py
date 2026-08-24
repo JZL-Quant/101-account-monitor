@@ -1,5 +1,7 @@
 from datetime import date
 
+from core.feishu.daily_report_card import display_account_name
+
 
 LEVEL_EMOJI = {
     "outstanding": "🟢",
@@ -34,7 +36,10 @@ def _table(element_id, rows):
         ],
         "rows": [
             {
-                "account": f"{LEVEL_EMOJI[row['level']]} {row['account_name']}",
+                "account": (
+                    f"{LEVEL_EMOJI[row['level']]} "
+                    f"{display_account_name(row['account_name'], row.get('is_new_account', False))}"
+                ),
                 "return": _signed_percent(row["return_value"]),
                 "mean": _signed_percent(row["group_mean"]),
                 "std": f"{row['group_std']:.2f}%",

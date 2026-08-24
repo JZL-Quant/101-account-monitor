@@ -38,7 +38,7 @@ os.chdir(BASE_DIR)
 
 
 RUNTIME_LOGGER = setup_runtime_logger("account_monitor")
-TEST_ONLY_FEISHU_EXCHANGES = ("kucoin", "okx")
+TEST_ONLY_FEISHU_EXCHANGES = ("kucoin")
 
 def safe_metric_val(val):
     """把指标值转为可计算的 float；None、NaN、Inf 统一视为无效值。"""

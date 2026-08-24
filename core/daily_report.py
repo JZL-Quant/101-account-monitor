@@ -1,9 +1,13 @@
+import csv
 import math
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 
 from config.settings import MIN_VALID_CALCULATION_VALUE
 from core.return_attention import build_return_performance_sections
+
+
+NEW_ACCOUNT_MAX_AGE_DAYS = 30
 
 
 @dataclass
@@ -26,6 +30,40 @@ def _read_metric(metrics_store, account_name, metric_name):
         return metrics_store.read(account_name, metric_name)
     except Exception:
         return None
+
+
+def _parse_date(value):
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return datetime.fromisoformat(value.strip().replace("Z", "+00:00")).date()
+    except ValueError:
+        return None
+
+
+def _first_snapshot_date(snapshot_file):
+    if not snapshot_file:
+        return None
+    try:
+        with open(snapshot_file, "r", encoding="utf-8-sig", newline="") as file:
+            first_row = next(csv.DictReader(file), None)
+    except (OSError, csv.Error):
+        return None
+    return _parse_date((first_row or {}).get("timestamp"))
+
+
+def _is_new_account(account_info, report_date):
+    created_date = _parse_date(account_info.get("created_at"))
+    if created_date is None:
+        created_date = _first_snapshot_date(account_info.get("minute_snapshot_file"))
+    if created_date is None:
+        return False
+    age_days = (report_date - created_date).days
+    return 0 <= age_days <= NEW_ACCOUNT_MAX_AGE_DAYS
 
 
 def _combined_return_from_results(results, metric_key):
@@ -80,6 +118,7 @@ def build_daily_report(account_map, metrics_store, report_date=None):
         ar24h = _read_metric(metrics_store, account_name, "annualized_return_24h")
         ar7d = _read_metric(metrics_store, account_name, "annualized_return_7d")
         ar30d = _read_metric(metrics_store, account_name, "annualized_return_30d")
+        is_new_account = _is_new_account(account_info, report_date)
         result = {
             "account_name": account_name,
             "display_name": account_name,
@@ -88,6 +127,7 @@ def build_daily_report(account_map, metrics_store, report_date=None):
             "ar7d": ar7d,
             "ar30d": ar30d,
             "ar24h_val": _finite_number(ar24h) if _finite_number(ar24h) is not None else -999.0,
+            "is_new_account": is_new_account,
         }
 
         exchange_id = account_info.get("exchange_id", "binance")
@@ -114,6 +154,7 @@ def build_daily_report(account_map, metrics_store, report_date=None):
             "ccy": ccy,
             "annualized_return_24h": ar24h,
             "annualized_return_7d": ar7d,
+            "is_new_account": is_new_account,
         })
 
     detail_groups = []

@@ -1,6 +1,9 @@
 import math
 
 
+NEW_ACCOUNT_MARKER = "🌱🆕"
+
+
 def safe_metric_val(val):
     try:
         if val is None:
@@ -46,6 +49,11 @@ def card2_markdown(content, **kwargs):
     }
     element.update(kwargs)
     return element
+
+
+def display_account_name(account_name, is_new_account=False):
+    suffix = f" {NEW_ACCOUNT_MARKER}" if is_new_account else ""
+    return f"{account_name}{suffix}"
 
 def _metric_column(value_content, label_content):
     return {
@@ -307,6 +315,9 @@ def build_group_schema2_card(cfg, sorted_results, today_str, combined, chart_ima
 
     for res in sorted_results:
         account_name = res["display_name"]
+        displayed_account_name = display_account_name(
+            account_name, res.get("is_new_account", False)
+        )
         safe_ar24h = safe_metric_val(res.get("ar24h"))
         excess = safe_ar24h - benchmark if safe_ar24h is not None else None
 
@@ -317,7 +328,7 @@ def build_group_schema2_card(cfg, sorted_results, today_str, combined, chart_ima
         ])
 
         table_rows.append({
-            "account_name": account_name,
+            "account_name": displayed_account_name,
             "daily_return": md_pct_plain_colored(res.get("ar24h"), "blue"),
             "7d_return": md_pct_plain_colored(res.get("ar7d"), "orange"),
             "30d_return": md_pct_plain_colored(res.get("ar30d"), "purple"),

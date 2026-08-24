@@ -84,7 +84,7 @@ Example_Account:
 | `api_key_version` | KuCoin API Key 版本；新增账户时由系统自动探测并保存，无需手动填写 |
 | `initial_unit` | 账户初始份额 |
 | `principal` | 当前本金；未配置时兼容使用 `initial_unit`，赎回后自动扣减并写回配置 |
-| `account_type` | 账户类型 |
+| `account_type` | 账户类型；Binance 支持 `account`、`account_pro` 和 `classic` |
 | `exchange` | 交易所，当前支持 `Binance`、`Gate`、`KuCoin`、`OKX` |
 | `interest_rate` | 利率或计息参数 |
 | `client` | 客户名称 |
@@ -96,6 +96,8 @@ KuCoin 和 OKX 暂不进入默认正式日报及 Z 值计算。日级任务会�
 | `Blacklist` | Gate 账户估值时忽略缺失价格的币种列表 |
 
 Gate 估值遇到缺少 USDT 价格的币种时，会将该币种从当次权益快照中跳过并记录 `WARNING` 日志，但不会发送飞书告警。黑名单中的币种会静默跳过。
+
+Binance `classic` 账户统计传统现货、全仓杠杆、U 本位合约和 RWUSD。创建账户时系统会校验这些只读接口权限；全仓接口返回的 `accountType` 仅作为 Binance 账户模式信息，不影响 `classic` 监控类型的选择。
 
 KuCoin 账户通过账户资产估值接口按 `ccy` 获取总净值。API 请求失败时沿用其他交易所的容错方式，回退到该账户分钟快照 CSV 的最后一条实际权益。
 OKX 账户通过 `/api/v5/asset/asset-valuation` 按 `ccy` 获取包含资金、交易和 Earn 账户的总资产估值。OKX API Key 需要读权限和 Passphrase；请求失败时同样回退到最后一条分钟快照。
@@ -141,9 +143,16 @@ GRAFANA_PASSWORD = ""
 | `config/local_secrets.example.py` | 是 | 不含真实值的配置模板 |
 | `config/local_secrets.py` | 否 | 飞书和 Grafana 等真实凭证 |
 | `accounts_config.yaml` | 否 | Binance、Gate、KuCoin 等各账户的 API 凭证 |
+| `account_config_index.json` | 否 | 供同机其他进程轮询的当前账户名称、交易所和账户类型 |
 | `archived_accounts/accounts_config.yaml` | 否 | 已归档账户配置、归档时间及其 CSV 路径 |
 
 账户密钥继续放在 `accounts_config.yaml`，因为它还包含账户份额、币种和客户等结构化信息；不与通用服务凭证混放。
+
+服务启动以及网页新增或归档账户成功后，会根据当前活动账户完整重建
+`account_config_index.json`。文件按交易所分组，每组通过 `length` 保存账户数量，
+`accounts` 列表中的每项只记录 `account_name` 和 `account_type`。文件不写入 API Key、
+Secret 或 Passphrase。其他进程可以定时比较自己负责交易所的 `accounts` 列表；发生变化
+后，再从 `accounts_config.yaml` 重新生成该交易所的完整配置。
 
 #### 飞书是否需要 App API
 

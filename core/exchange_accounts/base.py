@@ -80,8 +80,27 @@ class BaseExchangeAccount(ABC):
     exchange_id = "exchange"
     exchange_label = "Exchange"
     supported_account_types = ()
+    creatable_account_types = ("account", "account_pro")
+    account_type_labels = {
+        "account": "普通账户",
+        "account_pro": "Pro 账户",
+    }
     credential_fields = ()
     managed_credential_fields = ()
+
+    @classmethod
+    def account_type_options(cls):
+        return [
+            {
+                "value": account_type,
+                "label": cls.account_type_labels.get(account_type, account_type),
+            }
+            for account_type in cls.creatable_account_types
+        ]
+
+    @classmethod
+    def account_type_label(cls, account_type):
+        return cls.account_type_labels.get(account_type, account_type)
 
     @classmethod
     def normalize_credentials(cls, values):

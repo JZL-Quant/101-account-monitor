@@ -36,6 +36,27 @@ class PerformanceSummaryCardTests(unittest.TestCase):
         self.assertEqual(tables[0]["rows"][0]["account"], "🟠 Example")
         self.assertNotIn("30D", str(card))
 
+    def test_new_account_name_has_marker(self):
+        sections = [{
+            "period": "24h",
+            "title": "24h 收益率表现",
+            "rows": [{
+                "level": "attention",
+                "account_name": "Test_1",
+                "return_value": -1.0,
+                "group_mean": 0.0,
+                "group_std": 0.5,
+                "z_value": -2.0,
+                "group_label": "Binance-USDT",
+                "is_new_account": True,
+            }],
+        }]
+
+        card = build_return_performance_card(sections, date(2026, 8, 3))
+        table = next(element for element in card["body"]["elements"] if element["tag"] == "table")
+
+        self.assertEqual(table["rows"][0]["account"], "🟡 Test_1 🌱🆕")
+
 
 if __name__ == "__main__":
     unittest.main()

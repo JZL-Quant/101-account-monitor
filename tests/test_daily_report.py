@@ -1,5 +1,7 @@
 import unittest
 from datetime import date
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from core.daily_report import build_daily_report
 
@@ -54,6 +56,39 @@ class DailyReportTests(unittest.TestCase):
             [section["period"] for section in report.performance_sections],
             ["24h", "7D"],
         )
+
+    def test_marks_accounts_created_within_30_days_as_new(self):
+        accounts = {
+            "New": {"created_at": "2026-07-04T12:00:00+00:00"},
+            "Old": {"created_at": "2026-07-03T12:00:00+00:00"},
+        }
+
+        report = build_daily_report(
+            accounts, MetricsStore({}), report_date=date(2026, 8, 3)
+        )
+        results = {
+            row["account_name"]: row["is_new_account"]
+            for group in report.detail_groups
+            for row in group["results"]
+        }
+
+        self.assertEqual(results, {"New": True, "Old": False})
+
+    def test_legacy_account_uses_first_snapshot_date(self):
+        with TemporaryDirectory() as temp_dir:
+            snapshot_file = Path(temp_dir) / "snapshot.csv"
+            snapshot_file.write_text(
+                "timestamp,actual_equity\n2026-07-20 09:00:00,100\n",
+                encoding="utf-8",
+            )
+            accounts = {"Legacy": {"minute_snapshot_file": str(snapshot_file)}}
+
+            report = build_daily_report(
+                accounts, MetricsStore({}), report_date=date(2026, 8, 3)
+            )
+
+        result = report.detail_groups[0]["results"][0]
+        self.assertTrue(result["is_new_account"])
 
 
 if __name__ == "__main__":

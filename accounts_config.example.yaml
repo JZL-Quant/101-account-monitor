@@ -12,6 +12,9 @@ Binance_Example:
   ccy: USDT
   # skip_default_feishu: true # 可选，跳过飞书群发送
 
+# Binance CLASSIC（传统现货 + 全仓杠杆 + U 本位合约）账户使用：
+# account_type: classic
+
 Gate_Example:
   key: replace_with_gate_api_key
   secret: replace_with_gate_secret_key
