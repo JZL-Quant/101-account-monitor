@@ -1,7 +1,7 @@
 # KuCoin 现货 / 合约对冲监控
 
 这是一个与现有 `account_monitor` 独立运行的服务。它默认监听
-`127.0.0.1:8000`，每分钟通过 KuCoin UTA 接口查询当前子账户的统一账户
+`127.0.0.1:8000`，每分钟通过 KuCoin UTA REST V2 接口查询当前子账户的统一账户
 资产和 Futures 仓位，按合约 `multiplier` 换算成币数量，再计算现货与
 合约是否对冲。
 
@@ -296,7 +296,7 @@ kucoin:
 创建 API Key 时由你自己设置的 API Passphrase。它不是 KuCoin 网站登录
 密码，也不是资金密码。
 
-本项目按 UTA 账户实现，内部固定使用 V3 请求签名。`API Key Version`
+本项目按 UTA REST V2 账户接口实现，内部固定使用 V3 API Key 请求签名。`API Key Version`
 不是第四个凭证，也不需要写进 `config.yaml`；你只需要填写上面三个值。
 启动时程序会访问 UTA 余额接口，并核对返回的账户类型是 `UNIFIED`。
 
@@ -335,7 +335,7 @@ monitor:
 
 - 现货账户余额；
 - Futures 当前持仓；
-- Futures 账户权益；
+- UTA 账户权益；
 - 现货价格；
 - 合约规格。
 

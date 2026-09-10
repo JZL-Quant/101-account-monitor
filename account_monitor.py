@@ -38,7 +38,7 @@ os.chdir(BASE_DIR)
 
 
 RUNTIME_LOGGER = setup_runtime_logger("account_monitor")
-TEST_ONLY_FEISHU_EXCHANGES = ("kucoin")
+TEST_ONLY_FEISHU_EXCHANGES = ("kucoin",) # 逗号不可删除
 
 def safe_metric_val(val):
     """把指标值转为可计算的 float；None、NaN、Inf 统一视为无效值。"""
@@ -657,7 +657,7 @@ def cleanup_expired_runtime_logs():
 
 def start_monitor_scheduler():
     scheduler = MonitorScheduler(RUNTIME_LOGGER)
-    scheduler.add_task("startup", update_bigquery_returns)
+    # scheduler.add_task("startup", update_bigquery_returns)
     scheduler.add_task("startup", update_annualized_metrics_test)
     scheduler.add_task("minute", update_metrics)
     # scheduler.add_task("minute", check_large_equity_changes)

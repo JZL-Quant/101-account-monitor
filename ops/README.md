@@ -17,6 +17,57 @@ source .venv/bin/activate
 | `ops.backfill_prometheus` | 检测 CSV/Prometheus 缺口并生成回灌 blocks | 默认否 |
 | `ops/backfill_prometheus.sh` | 一键停服、备份、导入并重启 Prometheus | 是，高风险操作 |
 | `ops.backfill_bigquery_returns` | 检测并回填 BigQuery 日收益缺口 | 默认否 |
+| `ops.correct_rwusd_total_profit` | 审计并修正误计入净值的 RWUSD 历史累计收益 | 默认否 |
+
+## 修正 RWUSD 历史累计收益
+
+旧版 Binance 净值逻辑把 RWUSD 接口的 `rwusdAmount + totalProfit` 一起计入
+`actual_equity`。`totalProfit` 是账户历史累计字段，复用旧账户时会把前一使用者的
+RWUSD 收益带进新策略。当前净值逻辑只保留 `rwusdAmount`；本工具用于审计账户并
+修正已经写入分钟 CSV 的历史数据。
+
+先审计全部 Binance 账户的当前字段，不读取或修改 CSV：
+
+```bash
+python -m ops.correct_rwusd_total_profit --all
+```
+
+指定账户和策略起始时间进行 dry-run：
+
+```bash
+python -m ops.correct_rwusd_total_profit \
+  --accounts Brioni_41 \
+  --start "2026-07-18 00:00:00" \
+  --csv-timezone UTC
+```
+
+脚本会先确认修正窗口内没有新的 RWUSD 收益、申购或赎回，再通过 Binance
+`1m` Kline 查询每行对应的 `USDCUSDT` 和 `BTCUSDT` 收盘价。BTC 账户每行扣除：
+
+```text
+totalProfit × USDCUSDT(分钟) / BTCUSDT(分钟)
+```
+
+USDT 账户每行扣除 `totalProfit × USDCUSDT(分钟)`。`total_unit` 保持不变，
+`net_value` 使用修正后的 `actual_equity / total_unit` 重算。dry-run 会把逐行价格、
+扣减金额和修正前后数值写入 `runtime_logs/rwusd_total_profit_*.csv`，但不修改源 CSV。
+
+审阅报告后，先停止账户监控，增加 `--execute` 才会原子替换源 CSV：
+
+```bash
+python -m ops.correct_rwusd_total_profit \
+  --accounts Brioni_41 \
+  --start "2026-07-18 00:00:00" \
+  --csv-timezone UTC \
+  --execute
+```
+
+执行前会检查运行中的 PID；执行时在源 CSV 同目录创建 `.bak` 备份和 JSON 修正
+标记，避免重复执行。若窗口内存在任何 RWUSD 活动，脚本会拒绝修正，因为当前
+`totalProfit` 不能安全代表每一个历史分钟。
+
+分钟 K 线可以还原当时的市场价格，但不能精确复现旧程序请求发生那一秒的 ticker。
+脚本使用该分钟收盘价，通常是现有公开数据能稳定复现的最细口径。
 
 ## 回填 BigQuery 日收益
 
@@ -48,7 +99,7 @@ python -m ops.backfill_bigquery_returns \
 
 常用参数：
 
-- `--accounts Brioni_27 BV_5`：只处理指定账户，也支持逗号分隔。
+- `--accounts Brioni_27 Zara_101`：只处理指定账户，也支持逗号分隔。
 - `--source account-monitor`：改用新服务的 `minute_snapshots/`。
 - `--report /path/report.csv`：指定审计报告位置。
 - `--replace-existing`：也重算并 MERGE 已存在的键，只有确认要覆盖时使用。
@@ -113,7 +164,7 @@ python -m ops.sync_grafana_dashboards --dry-run
 python -m ops.sync_grafana_dashboards
 ```
 
-默认模式只追加标题不存在的账户 Panel，保留已有 Panel。新生成的净值 Panel 会过滤 `actual_equity <= 1e-7`；年化指标查询会展示 `NaN`，并将 `±Inf` 转换为 `NaN`。
+默认模式追加缺失账户 Panel，保留已有配置。账户名称直接读取 `accounts_config.yaml` 的账户键（如 `Piana_106`）；飞书原样显示，Grafana 去掉下划线且不显示客户名（如 `BN_Piana106_USDT`）。写入前在 `runtime_data/grafana_backups/` 保存备份。新生成的净值 Panel 会过滤 `actual_equity <= 1e-7`；年化指标查询会展示 `NaN`，并将 `±Inf` 转换为 `NaN`。
 
 仅在明确需要按账户配置重建整个 Dashboard 时使用：
 
@@ -135,7 +186,7 @@ python -m ops.sync_grafana_dashboards --force-rebuild
 sudo bash ops/backfill_prometheus.sh \
   --prometheus-dir /home/ec2-user/prometheus-3.3.0-rc.0.linux-arm64 \
   --python-bin /home/ec2-user/.venv/bin/python \
-  --account BV10_LTP_USDT \
+  --account Piana_104 \
   --start 2025-07-14T00:00:00Z \
   --end 2026-07-14T20:00:00Z
 ```
@@ -143,7 +194,7 @@ sudo bash ops/backfill_prometheus.sh \
 复制多行命令时，反斜杠 `\` 必须是每行最后一个字符，后面不能有空格，而且续行之间不能插入空行。也可以直接使用不易出错的单行形式：
 
 ```bash
-sudo bash ops/backfill_prometheus.sh --prometheus-dir /home/ec2-user/prometheus-3.3.0-rc.0.linux-arm64 --python-bin /home/ec2-user/.venv/bin/python --account BV10_LTP_USDT --start 2025-07-14T00:00:00Z --end 2026-07-14T20:00:00Z
+sudo bash ops/backfill_prometheus.sh --prometheus-dir /home/ec2-user/prometheus-3.3.0-rc.0.linux-arm64 --python-bin /home/ec2-user/.venv/bin/python --account Piana_104 --start 2025-07-14T00:00:00Z --end 2026-07-14T20:00:00Z
 ```
 
 脚本在停服务前会显示数据目录、备份目录和 block 数，并要求输入 `yes`。自动化环境可增加 `--yes`。
@@ -175,7 +226,7 @@ CSV 明明有某段时间的账户权益，但 Grafana 曲线断开时使用。�
 
 ```bash
 python -m ops.backfill_prometheus \
-  --account BV10_LTP_USDT \
+  --account Piana_104 \
   --start 2026-07-14T00:00:00Z \
   --end 2026-07-14T20:00:00Z
 ```
@@ -183,14 +234,14 @@ python -m ops.backfill_prometheus \
 重点查看输出中的 `missing`：
 
 ```text
-BV10_LTP_USDT: csv=1200, prometheus_minutes=900, missing=300
+Piana_104: csv=1200, prometheus_minutes=900, missing=300
 ```
 
 确认缺失数量合理后，用同一条命令加上 `--prepare`：
 
 ```bash
 python -m ops.backfill_prometheus \
-  --account BV10_LTP_USDT \
+  --account Piana_104 \
   --start 2026-07-14T00:00:00Z \
   --end 2026-07-14T20:00:00Z \
   --prepare

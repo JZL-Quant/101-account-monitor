@@ -2,8 +2,8 @@
 """
 Create missing Grafana account panels from the account config.
 
-By default the script only appends panels whose titles do not exist. Existing
-panels, including manually edited or manually created panels, are left intact.
+By default the script appends missing panels. Existing panels retain their
+configuration. Titles are derived directly from the configured account names.
 Use --force-rebuild only for an explicit full rebuild.
 
 Default behavior writes to the two lljtest dashboards. Use --dry-run only when
@@ -14,6 +14,7 @@ import argparse
 import copy
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
@@ -241,7 +242,7 @@ def sync_dashboards(
     nav_panels, nav_added = panels_for_save(nav_response, nav_panels, force_rebuild)
 
     emit(logger, "info", "accounts: %s", len(accounts))
-    mode = "force rebuild" if force_rebuild else "append only"
+    mode = "force rebuild" if force_rebuild else "append missing"
     emit(logger, "info", "sync mode: %s", mode)
     emit(logger, "info", "annualized dashboard uid: %s, total panels: %s, added: %s", annualized_uid, len(annualized_panels), annualized_added)
     emit(logger, "info", "nav dashboard uid: %s, total panels: %s, added: %s", nav_uid, len(nav_panels), nav_added)
@@ -601,17 +602,13 @@ def style_summary(style_panel):
 
 
 def panel_title(account):
-    display_account = account["name"].replace("_", "")
+    display_account = account["name"]
+    display_account = display_account.replace("_", "").replace(" ", "")
     return f"{account['panel_exchange']}_{display_account}_{account['ccy']}"
 
 
 def nav_panel_title(account):
-    display_account = account["name"].replace("_", "")
-    title_parts = [account["panel_exchange"], display_account]
-    if account["name"].upper().startswith("BV_") and account.get("client"):
-        title_parts.append(str(account["client"]).upper())
-    title_parts.append(account["ccy"])
-    return "_".join(title_parts)
+    return panel_title(account)
 
 
 def dump_reference_style(client, args):
@@ -932,6 +929,15 @@ def grid_pos(index, style_panel=None):
     }
 
 
+def backup_dashboard(response):
+    directory = Path(__file__).resolve().parents[1] / "runtime_data" / "grafana_backups"
+    directory.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    path = directory / f"{response['dashboard']['uid']}_{stamp}.json"
+    path.write_text(json.dumps(response, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"dashboard backup: {path}")
+
+
 def panels_for_save(dashboard_response, generated_panels, force_rebuild=False):
     """Return the panels to save and the number of generated panels added."""
     if force_rebuild:
@@ -983,6 +989,7 @@ def panels_for_save(dashboard_response, generated_panels, force_rebuild=False):
 
 
 def save_generated_dashboard(client, dashboard_response, panels, message):
+    backup_dashboard(dashboard_response)
     dashboard = dashboard_response["dashboard"]
     meta = dashboard_response.get("meta", {})
     dashboard["panels"] = panels

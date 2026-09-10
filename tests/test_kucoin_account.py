@@ -53,7 +53,7 @@ class KucoinExchangeAccountTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(detected, "3")
         self.assertEqual(account.api_key_version, "3")
-        self.assertEqual(calls, [("/api/v1/user/api-key", "3")])
+        self.assertEqual(calls, [("/api/ua/v2/user/api-key", "3")])
 
     async def test_api_key_version_falls_back_to_version_two(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -84,7 +84,7 @@ class KucoinExchangeAccountTests(unittest.IsolatedAsyncioTestCase):
     def test_private_headers_follow_kucoin_signature_rules(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             account = build_account(Path(temp_dir) / "snapshot.csv")
-            endpoint = "/api/ua/v1/asset/valuation?base=USDT"
+            endpoint = "/api/ua/v2/unified/account/balance"
 
             headers = account._private_headers(
                 "GET", endpoint, timestamp_ms=1700000000000
@@ -104,19 +104,63 @@ class KucoinExchangeAccountTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(headers["KC-API-PASSPHRASE"], expected_passphrase)
         self.assertEqual(headers["KC-API-KEY-VERSION"], "2")
 
-    async def test_actual_equity_uses_total_valuation(self):
+    async def test_actual_equity_uses_currency_equity_and_spot_last_price(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             account = build_account(Path(temp_dir) / "snapshot.csv")
-            account.fetch_asset_valuation = AsyncMock(return_value={
-                "currentAccount": {
-                    "base": "USDT",
-                    "totalValuation": "1234.5678",
-                }
+            account.fetch_account_balances = AsyncMock(return_value={
+                "accountType": "UNIFIED",
+                "accounts": [{
+                    "currencies": [
+                        {"currency": "USDT", "equity": "1000"},
+                        {"currency": "BTC", "equity": "0.01"},
+                    ]
+                }],
+            })
+            account.fetch_spot_tickers = AsyncMock(return_value={
+                "list": [
+                    {"symbol": "BTC-USDT", "lastPrice": "65000"},
+                ]
             })
 
             equity = await account.get_actual_equity()
 
-        self.assertEqual(equity, 1234.5678)
+        self.assertEqual(equity, 1650.0)
+
+    async def test_actual_equity_can_use_a_two_leg_spot_conversion(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            account = build_account(Path(temp_dir) / "snapshot.csv")
+            account.fetch_account_balances = AsyncMock(return_value={
+                "accountType": "UNIFIED",
+                "accounts": [{
+                    "currencies": [{"currency": "TOKEN", "equity": "2"}]
+                }],
+            })
+            account.fetch_spot_tickers = AsyncMock(return_value={
+                "list": [
+                    {"symbol": "TOKEN-BTC", "lastPrice": "0.001"},
+                    {"symbol": "BTC-USDT", "lastPrice": "65000"},
+                ]
+            })
+
+            equity = await account.get_actual_equity()
+
+        self.assertEqual(equity, 130.0)
+
+    async def test_missing_market_price_falls_back_instead_of_undervaluing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            account = build_account(Path(temp_dir) / "snapshot.csv")
+            account.fetch_account_balances = AsyncMock(return_value={
+                "accountType": "UNIFIED",
+                "accounts": [{
+                    "currencies": [{"currency": "TOKEN", "equity": "2"}]
+                }],
+            })
+            account.fetch_spot_tickers = AsyncMock(return_value={"list": []})
+            account.get_last_actual_equity_from_csv = lambda: 987.65
+
+            equity = await account.get_actual_equity()
+
+        self.assertEqual(equity, 987.65)
 
     async def test_api_failure_falls_back_to_last_snapshot(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -127,9 +171,10 @@ class KucoinExchangeAccountTests(unittest.IsolatedAsyncioTestCase):
                 encoding="utf-8",
             )
             account = build_account(snapshot_file)
-            account.fetch_asset_valuation = AsyncMock(
+            account.fetch_account_balances = AsyncMock(
                 side_effect=RuntimeError("API unavailable")
             )
+            account.fetch_spot_tickers = AsyncMock(return_value={"list": []})
 
             equity = await account.get_actual_equity()
 

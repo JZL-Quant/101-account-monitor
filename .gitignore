@@ -36,6 +36,8 @@ runtime_logs/
 nv_logs/
 *.log
 *.pid
+analysis/
+tests/
 
 # Monitor runtime data
 minute_snapshots/

@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from decimal import Decimal
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 from kucoin_exposure.auth import SessionSigner, credentials_match
 from kucoin_exposure.calculator import (
@@ -11,6 +12,8 @@ from kucoin_exposure.calculator import (
     check_position_conversion,
     floor_to_increment,
 )
+from kucoin_exposure.client import KucoinClient
+from kucoin_exposure.config import KucoinConfig
 from kucoin_exposure.models import FuturesPosition, SpotBalance, SpotSymbol
 from kucoin_exposure.repository import ExposureRepository
 
@@ -210,6 +213,67 @@ class CalculatorTests(unittest.TestCase):
         self.assertEqual(rows[0].mismatch_percent, Decimal("0"))
         self.assertEqual(rows[0].status, "现货储备")
         self.assertTrue(rows[0].excluded_from_hedge)
+
+
+class KucoinClientV2Tests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.client = KucoinClient(
+            KucoinConfig("key", "secret", "passphrase")
+        )
+        self.client._request = AsyncMock()
+
+    async def test_account_and_order_methods_use_uta_v2_paths(self):
+        self.client._request.side_effect = [
+            {"accountType": "UNIFIED", "accounts": []},
+            {"accountType": "UNIFIED", "equity": "100"},
+            {"items": []},
+            {"items": []},
+            {"orderId": "1"},
+        ]
+
+        mode = await self.client.validate_credentials()
+        await self.client.fetch_futures_account("USDT")
+        await self.client.cancel_spot_orders("BTC-USDT")
+        await self.client.has_open_orders("BTC-USDT", "SPOT")
+        await self.client.place_spot_market_sell(
+            "BTC-USDT", Decimal("0.001")
+        )
+
+        self.assertEqual(mode, "UTA REST V2 / API Key V3")
+        paths = [call.args[2] for call in self.client._request.await_args_list]
+        self.assertEqual(
+            paths,
+            [
+                "/api/ua/v2/unified/account/balance",
+                "/api/ua/v2/unified/account/overview",
+                "/api/ua/v2/unified/order/cancel-all",
+                "/api/ua/v2/unified/order/open-list",
+                "/api/ua/v2/unified/order/place",
+            ],
+        )
+
+    async def test_v2_trading_enabled_symbol_is_available(self):
+        self.client._request.return_value = {
+            "list": [
+                {
+                    "symbol": "BTC-USDT",
+                    "baseCurrency": "BTC",
+                    "quoteCurrency": "USDT",
+                    "baseOrderStep": "0.000001",
+                    "minBaseOrderSize": "0.00001",
+                    "minFunds": "0.1",
+                    "tradingStatus": "TradingEnabled",
+                }
+            ]
+        }
+
+        symbols = await self.client.fetch_spot_symbols()
+
+        self.assertTrue(symbols["BTC-USDT"].enabled)
+        self.assertEqual(
+            self.client._request.await_args.args[2],
+            "/api/ua/v2/market/instrument",
+        )
 
 
 class AuthTests(unittest.TestCase):

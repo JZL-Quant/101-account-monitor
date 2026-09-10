@@ -99,7 +99,7 @@ Gate 估值遇到缺少 USDT 价格的币种时，会将该币种从当次权益
 
 Binance `classic` 账户统计传统现货、全仓杠杆、U 本位合约和 RWUSD。创建账户时系统会校验这些只读接口权限；全仓接口返回的 `accountType` 仅作为 Binance 账户模式信息，不影响 `classic` 监控类型的选择。
 
-KuCoin 账户通过账户资产估值接口按 `ccy` 获取总净值。API 请求失败时沿用其他交易所的容错方式，回退到该账户分钟快照 CSV 的最后一条实际权益。
+KuCoin UTA 账户通过 V2 余额接口 `/api/ua/v2/unified/account/balance` 获取各币种净数量，再使用 V2 现货行情 `/api/ua/v2/market/ticker` 的最新成交价 `lastPrice` 折算到配置的 `ccy`。它不使用账户概览里的指数价格 `equity` 或风控折扣后的 `adjustedEquity`；没有直接交易对时仅通过 USDT、USDC、BTC 或 ETH 做两段换算，仍无法取得价格则整次回退到该账户分钟快照 CSV 的最后一条实际权益，不会静默漏算资产。
 OKX 账户通过 `/api/v5/asset/asset-valuation` 按 `ccy` 获取包含资金、交易和 Earn 账户的总资产估值。OKX API Key 需要读权限和 Passphrase；请求失败时同样回退到最后一条分钟快照。
 
 > `accounts_config.yaml` 包含敏感凭证，已设计为仅保留在服务器本地。请勿提交到 Git，也不要给 API Key 开启不必要的交易或提现权限。

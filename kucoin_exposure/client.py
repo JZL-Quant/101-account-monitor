@@ -20,6 +20,14 @@ from .models import FuturesPosition, SpotBalance, SpotSymbol, ZERO, decimal_valu
 
 # 账户监控为低频查询，使用 KuCoin 官方公网 UTA 域名；colo 仅供交易链路。
 UTA_BASE_URL = "https://api.kucoin.com"
+ACCOUNT_OVERVIEW_PATH = "/api/ua/v2/unified/account/overview"
+ACCOUNT_BALANCE_PATH = "/api/ua/v2/unified/account/balance"
+POSITION_LIST_PATH = "/api/ua/v2/unified/position/open-list"
+MARKET_TICKER_PATH = "/api/ua/v2/market/ticker"
+MARKET_INSTRUMENT_PATH = "/api/ua/v2/market/instrument"
+OPEN_ORDER_LIST_PATH = "/api/ua/v2/unified/order/open-list"
+CANCEL_ORDERS_BY_SYMBOL_PATH = "/api/ua/v2/unified/order/cancel-all"
+PLACE_ORDER_PATH = "/api/ua/v2/unified/order/place"
 # UTA 的公开 instrument 返回字段仍在快速迭代。合约 multiplier 暂用 KuCoin
 # 经典公开合约元数据交叉补齐；该请求不涉及账户模式或 API Key。
 FUTURES_PUBLIC_BASE_URL = "https://api-futures.kucoin.com"
@@ -223,18 +231,18 @@ class KucoinClient:
         data = await self._request(
             "GET",
             UTA_BASE_URL,
-            "/api/ua/v1/unified/account/balance",
+            ACCOUNT_BALANCE_PATH,
         )
         account_type = str((data or {}).get("accountType", "")).upper()
         if account_type and account_type != "UNIFIED":
             raise KucoinAPIError(
                 f"Expected UTA accountType=UNIFIED, got {account_type}"
             )
-        return "UTA/V3"
+        return "UTA REST V2 / API Key V3"
 
     async def fetch_spot_balances(self) -> list[SpotBalance]:
         data = await self._request(
-            "GET", UTA_BASE_URL, "/api/ua/v1/unified/account/balance"
+            "GET", UTA_BASE_URL, ACCOUNT_BALANCE_PATH
         )
         result: list[SpotBalance] = []
         for account in (data or {}).get("accounts", []):
@@ -267,7 +275,7 @@ class KucoinClient:
         data = await self._request(
             "GET",
             UTA_BASE_URL,
-            "/api/ua/v1/market/instrument",
+            MARKET_INSTRUMENT_PATH,
             params={"tradeType": "SPOT"},
             private=False,
         )
@@ -283,7 +291,8 @@ class KucoinClient:
                 min_funds=decimal_value(
                     item.get("minFunds") or item.get("minQuoteOrderSize")
                 ),
-                enabled=str(item.get("tradingStatus", "0")) == "1",
+                enabled=str(item.get("tradingStatus", "")).upper()
+                in {"1", "TRADINGENABLED"},
             )
         self._spot_symbols_cache = symbols
         return symbols
@@ -292,7 +301,7 @@ class KucoinClient:
         data = await self._request(
             "GET",
             UTA_BASE_URL,
-            "/api/ua/v1/market/ticker",
+            MARKET_TICKER_PATH,
             params={"tradeType": "SPOT"},
             private=False,
         )
@@ -322,7 +331,7 @@ class KucoinClient:
         data = await self._request(
             "GET",
             UTA_BASE_URL,
-            "/api/ua/v1/unified/position/open-list",
+            POSITION_LIST_PATH,
             params={"pageNumber": 1, "pageSize": 200},
         )
         raw_items = data if isinstance(data, list) else (data or {}).get("items", [])
@@ -385,7 +394,7 @@ class KucoinClient:
         return await self._request(
             "GET",
             UTA_BASE_URL,
-            "/api/ua/v1/unified/account/overview",
+            ACCOUNT_OVERVIEW_PATH,
         )
 
     async def _cancel_orders(self, symbol: str, trade_type: str) -> Any:
@@ -399,7 +408,7 @@ class KucoinClient:
         return await self._request(
             "POST",
             UTA_BASE_URL,
-            "/api/ua/v1/unified/order/cancel-all",
+            CANCEL_ORDERS_BY_SYMBOL_PATH,
             body=body,
             order_request=True,
         )
@@ -408,7 +417,7 @@ class KucoinClient:
         data = await self._request(
             "GET",
             UTA_BASE_URL,
-            "/api/ua/v1/unified/order/open-list",
+            OPEN_ORDER_LIST_PATH,
             params={
                 "tradeType": trade_type,
                 "symbol": symbol,
@@ -432,7 +441,7 @@ class KucoinClient:
         data = await self._request(
             "POST",
             UTA_BASE_URL,
-            "/api/ua/v1/unified/order/place",
+            PLACE_ORDER_PATH,
             body={
                 "tradeType": "SPOT",
                 "symbol": symbol,
@@ -459,7 +468,7 @@ class KucoinClient:
         data = await self._request(
             "POST",
             UTA_BASE_URL,
-            "/api/ua/v1/unified/order/place",
+            PLACE_ORDER_PATH,
             body={
                 "tradeType": "FUTURES",
                 "symbol": position.symbol,
